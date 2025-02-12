@@ -80,9 +80,11 @@ interface IExecutor is IModule {}
 interface IHook is IModule {
     function preCheck(
         address msgSender,
+        uint256 msgValue,
         bytes calldata msgData
     ) external returns (bytes memory hookData);
-    function postCheck(bytes calldata hookData) external returns (bool success);
+
+    function postCheck(bytes calldata hookData) external;
 }
 
 interface IFallback is IModule {}

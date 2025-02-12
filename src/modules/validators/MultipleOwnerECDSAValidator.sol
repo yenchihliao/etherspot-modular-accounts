@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
-import "../../erc7579-ref-impl/interfaces/IERC7579Account.sol";
-import "../../erc7579-ref-impl/interfaces/IERC7579Module.sol";
-import "../../erc7579-ref-impl/libs/ModeLib.sol";
-import "../../erc7579-ref-impl/libs/ExecutionLib.sol";
-import {ModularEtherspotWallet} from "../../wallet/ModularEtherspotWallet.sol";
 import {ECDSA} from "solady/src/utils/ECDSA.sol";
+import "ERC7579/interfaces/IERC7579Account.sol";
+import "ERC7579/interfaces/IERC7579Module.sol";
+import "ERC7579/libs/ModeLib.sol";
+import "ERC7579/libs/ExecutionLib.sol";
+import {ModularEtherspotWallet} from "../../wallet/ModularEtherspotWallet.sol";
 
 contract MultipleOwnerECDSAValidator is IValidator {
     using ExecutionLib for bytes;

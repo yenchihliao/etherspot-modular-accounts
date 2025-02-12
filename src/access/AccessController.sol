@@ -2,7 +2,6 @@
 pragma solidity ^0.8.21;
 
 import {IAccessController} from "../interfaces/IAccessController.sol";
-import {ErrorsLib} from "../libraries/ErrorsLib.sol";
 
 contract AccessController is IAccessController {
     /// State Variables
@@ -22,14 +21,14 @@ contract AccessController is IAccessController {
     /// Modifiers
     modifier onlyOwnerOrSelf() {
         if (!(isOwner(msg.sender) || msg.sender == address(this))) {
-            revert ErrorsLib.OnlyOwnerOrSelf();
+            revert OnlyOwnerOrSelf();
         }
         _;
     }
 
     modifier onlyGuardian() {
         if (!isGuardian(msg.sender)) {
-            revert ErrorsLib.OnlyGuardian();
+            revert OnlyGuardian();
         }
         _;
     }
@@ -40,10 +39,30 @@ contract AccessController is IAccessController {
                 isGuardian(msg.sender) ||
                 msg.sender == address(this))
         ) {
-            revert ErrorsLib.OnlyOwnerOrGuardianOrSelf();
+            revert OnlyOwnerOrGuardianOrSelf();
         }
         _;
     }
+
+    /// Errors
+    error OnlyOwnerOrSelf();
+    error OnlyGuardian();
+    error OnlyOwnerOrGuardianOrSelf();
+
+    error AddingInvalidOwner();
+    error RemovingInvalidOwner();
+    error AddingInvalidGuardian();
+    error RemovingInvalidGuardian();
+
+    error WalletNeedsOwner();
+    error NotEnoughGuardians();
+
+    error ProposalResolved();
+    error ProposalUnresolved();
+    error AlreadySignedProposal();
+
+    error ProposalTimelocked();
+    error InvalidProposal();
 
     /// External
     /**
@@ -57,7 +76,7 @@ contract AccessController is IAccessController {
             isGuardian(_newOwner) ||
             isOwner(_newOwner)
         ) {
-            revert ErrorsLib.AddingInvalidOwner();
+            revert AddingInvalidOwner();
         }
         _addOwner(_newOwner);
         emit OwnerAdded(address(this), _newOwner);
@@ -69,9 +88,9 @@ contract AccessController is IAccessController {
      * @param _owner address of wallet owner to remove .
      */
     function removeOwner(address _owner) external onlyOwnerOrSelf {
-        if (!isOwner(_owner)) revert ErrorsLib.RemovingInvalidOwner();
+        if (!isOwner(_owner)) revert RemovingInvalidOwner();
         if (ownerCount <= 1) {
-            revert ErrorsLib.WalletNeedsOwner();
+            revert WalletNeedsOwner();
         }
         _removeOwner(_owner);
         emit OwnerRemoved(address(this), _owner);
@@ -88,7 +107,7 @@ contract AccessController is IAccessController {
             isGuardian(_newGuardian) ||
             isOwner(_newGuardian)
         ) {
-            revert ErrorsLib.AddingInvalidGuardian();
+            revert AddingInvalidGuardian();
         }
         _addGuardian(_newGuardian);
         emit GuardianAdded(address(this), _newGuardian);
@@ -100,7 +119,7 @@ contract AccessController is IAccessController {
      * @param _guardian address of existing guardian to remove.
      */
     function removeGuardian(address _guardian) external onlyOwnerOrSelf {
-        if (!isGuardian(_guardian)) revert ErrorsLib.RemovingInvalidGuardian();
+        if (!isGuardian(_guardian)) revert RemovingInvalidGuardian();
         _removeGuardian(_guardian);
         emit GuardianRemoved(address(this), _guardian);
     }
@@ -129,11 +148,11 @@ contract AccessController is IAccessController {
             ? INITIAL_PROPOSAL_TIMELOCK
             : proposalTimelock;
         if (_resolvedProposal()) {
-            revert ErrorsLib.ProposalResolved();
+            revert ProposalResolved();
         }
         bool allowed = isGuardian(msg.sender);
         if (allowed && (prop.proposedAt + timelock >= block.timestamp))
-            revert ErrorsLib.ProposalTimelocked();
+            revert ProposalTimelocked();
 
         prop.resolved = true;
         emit ProposalDiscarded(address(this), proposalId, msg.sender);
@@ -150,14 +169,14 @@ contract AccessController is IAccessController {
             isGuardian(_newOwner) ||
             isOwner(_newOwner)
         ) {
-            revert ErrorsLib.AddingInvalidOwner();
+            revert AddingInvalidOwner();
         }
         if (guardianCount < 3) {
-            revert ErrorsLib.NotEnoughGuardians();
+            revert NotEnoughGuardians();
         }
         NewOwnerProposal storage prop = _proposals[proposalId];
         if (prop.guardiansApproved.length != 0 && !prop.resolved) {
-            revert ErrorsLib.ProposalUnresolved();
+            revert ProposalUnresolved();
         }
         uint256 newProposalId = proposalId + 1;
         _proposals[newProposalId].newOwnerProposed = _newOwner;
@@ -182,13 +201,13 @@ contract AccessController is IAccessController {
         uint256 latestId = proposalId;
         NewOwnerProposal storage latestProp = _proposals[latestId];
         if (latestId == 0) {
-            revert ErrorsLib.InvalidProposal();
+            revert InvalidProposal();
         }
         if (_checkIfSigned(latestId)) {
-            revert ErrorsLib.AlreadySignedProposal();
+            revert AlreadySignedProposal();
         }
         if (_resolvedProposal()) {
-            revert ErrorsLib.ProposalResolved();
+            revert ProposalResolved();
         }
         _proposals[latestId].guardiansApproved.push(msg.sender);
         _proposals[latestId].approvalCount++;
@@ -248,7 +267,7 @@ contract AccessController is IAccessController {
         )
     {
         if (_proposalId == 0 || _proposalId > proposalId) {
-            revert ErrorsLib.InvalidProposal();
+            revert InvalidProposal();
         }
         NewOwnerProposal memory proposal = _proposals[_proposalId];
         return (

@@ -2,11 +2,11 @@
 pragma solidity ^0.8.21;
 
 import "forge-std/Test.sol";
-import "../../src/erc7579-ref-impl/test/dependencies/EntryPoint.sol";
-import "../../src/erc7579-ref-impl/test/Bootstrap.t.sol";
-import {MockValidator} from "../../src/erc7579-ref-impl/test/mocks/MockValidator.sol";
-import {MockExecutor} from "../../src/erc7579-ref-impl/test/mocks/MockExecutor.sol";
-import {MockTarget} from "../../src/erc7579-ref-impl/test/mocks/MockTarget.sol";
+import "ERC7579/test/dependencies/EntryPoint.sol";
+import "ERC7579/test/Bootstrap.t.sol";
+import {MockValidator} from "ERC7579/test/mocks/MockValidator.sol";
+import {MockExecutor} from "ERC7579/test/mocks/MockExecutor.sol";
+import {MockTarget} from "ERC7579/test/mocks/MockTarget.sol";
 import {ModularEtherspotWalletFactory} from "../../src/wallet/ModularEtherspotWalletFactory.sol";
 import {ModularEtherspotWallet} from "../../src/wallet/ModularEtherspotWallet.sol";
 

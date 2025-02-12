@@ -4,12 +4,10 @@ pragma solidity 0.8.23;
 import {ECDSA} from "solady/src/utils/ECDSA.sol";
 import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
 import "ERC4337/core/Helpers.sol";
-
-import {MODULE_TYPE_VALIDATOR, VALIDATION_FAILED} from "../../erc7579-ref-impl/interfaces/IERC7579Module.sol";
-import {IERC7579Account} from "../../erc7579-ref-impl/interfaces/IERC7579Account.sol";
-import "../../erc7579-ref-impl/libs/ModeLib.sol";
-import {ExecutionLib} from "../../erc7579-ref-impl/libs/ExecutionLib.sol";
-
+import {MODULE_TYPE_VALIDATOR, VALIDATION_FAILED} from "ERC7579/interfaces/IERC7579Module.sol";
+import {IERC7579Account} from "ERC7579/interfaces/IERC7579Account.sol";
+import "ERC7579/libs/ModeLib.sol";
+import {ExecutionLib} from "ERC7579/libs/ExecutionLib.sol";
 import {ISessionKeyValidator} from "../../interfaces/ISessionKeyValidator.sol";
 import {ExecutionValidation, ParamCondition, Permission, SessionData} from "../../common/Structs.sol";
 import {ComparisonRule} from "../../common/Enums.sol";

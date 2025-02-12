@@ -3,18 +3,18 @@ pragma solidity 0.8.23;
 
 import "forge-std/Test.sol";
 import {ECDSA} from "solady/src/utils/ECDSA.sol";
+import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
+import "ERC7579/interfaces/IERC7579Account.sol";
+import {ExecutionLib} from "ERC7579/libs/ExecutionLib.sol";
+import {ModeLib} from "ERC7579/libs/ModeLib.sol";
+import "ERC7579/test/dependencies/EntryPoint.sol";
 import {ModularEtherspotWallet} from "../../../../src/wallet/ModularEtherspotWallet.sol";
 import {SessionKeyValidator} from "../../../../src/modules/validators/SessionKeyValidator.sol";
 import {ExecutionValidation, ParamCondition, Permission, SessionData} from "../../../../src/common/Structs.sol";
 import {ComparisonRule} from "../../../../src/common/Enums.sol";
 import {TestCounter} from "../../../../src/test/TestCounter.sol";
 import {SessionKeyTestUtils} from "../utils/SessionKeyTestUtils.sol";
-import "../../../../src/erc7579-ref-impl/interfaces/IERC7579Account.sol";
-import {ExecutionLib} from "../../../../src/erc7579-ref-impl/libs/ExecutionLib.sol";
-import {ModeLib} from "../../../../src/erc7579-ref-impl/libs/ModeLib.sol";
-import "../../../../src/erc7579-ref-impl/test/dependencies/EntryPoint.sol";
 import "../../../../src/utils/ERC4337Utils.sol";
-import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
 
 contract SessionKeyValidator_Fuzz_Test is SessionKeyTestUtils {
     using ERC4337Utils for IEntryPoint;

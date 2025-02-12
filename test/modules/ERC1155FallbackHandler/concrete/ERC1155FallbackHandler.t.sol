@@ -2,9 +2,9 @@
 pragma solidity ^0.8.21;
 
 import "forge-std/Test.sol";
-import {ModuleManager} from "../../../../src/erc7579-ref-impl/core/ModuleManager.sol";
-import {CALLTYPE_SINGLE} from "../../../../src/erc7579-ref-impl/libs/ModeLib.sol";
-import {MODULE_TYPE_FALLBACK} from "../../../../src/erc7579-ref-impl/interfaces/IERC7579Module.sol";
+import {ModuleManager} from "ERC7579/core/ModuleManager.sol";
+import {CALLTYPE_SINGLE} from "ERC7579/libs/ModeLib.sol";
+import {MODULE_TYPE_FALLBACK} from "ERC7579/interfaces/IERC7579Module.sol";
 import {ModularEtherspotWallet} from "../../../../src/wallet/ModularEtherspotWallet.sol";
 import {ERC1155FallbackHandler} from "../../../../src/modules/fallbacks/ERC1155FallbackHandler.sol";
 import {TestERC1155} from "../../../../src/test/TestERC1155.sol";

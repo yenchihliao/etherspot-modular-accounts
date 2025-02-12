@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.23;
 
-import {ComparisonRule} from "../common/Enums.sol";
+import "../common/Enums.sol";
 
 /// @title ExecutionValidation
 /// @notice Struct containing data for validating an execution
@@ -36,4 +36,34 @@ struct SessionData {
     uint48 validAfter; // The timestamp after which the session key is valid
     uint48 validUntil; // The timestamp until which the session key is valid
     bool live; // Flag indicating whether the session key is active or paused
+}
+
+/// @title TokenData
+/// @notice Struct containing basic token information
+/// @dev Used to store token addresses and corresponding amounts
+struct TokenData {
+    address token;
+    uint256 amount;
+}
+
+// HookMultiplexer
+struct SigHookInit {
+    bytes4 sig;
+    address[] subHooks;
+}
+
+struct HookAndContext {
+    address hook;
+    bytes context;
+}
+
+struct SignatureHooks {
+    bytes4[] allSigs;
+    mapping(bytes4 => address[]) sigHooks;
+}
+
+struct Config {
+    bool initialized;
+    mapping(HookType hookType => address[]) hooks;
+    mapping(HookType hookType => SignatureHooks) sigHooks;
 }
