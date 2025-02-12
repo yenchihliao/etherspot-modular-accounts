@@ -6,7 +6,7 @@ bytecodeHash = "none"
 cbor_metadata = false
 solc_version = '0.8.23'
 optimizer = true
-runs = 256
+runs = 1000
 gas_reports = [
   "ModularEtherspotWallet",
   "ModularEtherspotWalletFactory",
@@ -17,7 +17,7 @@ gas_reports = [
 ]
 
 [fuzz]
-runs = 1000
+runs = 256
 
 [rpc_endpoints]
 # mainnets
