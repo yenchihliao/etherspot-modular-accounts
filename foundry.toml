@@ -5,6 +5,7 @@ libs = ["lib"]
 bytecodeHash = "none"
 cbor_metadata = false
 solc_version = '0.8.23'
+evm_version = "london"
 optimizer = true
 runs = 1000
 gas_reports = [
