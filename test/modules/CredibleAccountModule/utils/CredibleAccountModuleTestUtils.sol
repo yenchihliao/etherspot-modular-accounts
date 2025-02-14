@@ -159,17 +159,28 @@ contract CredibleAccountModuleTestUtils is TestAdvancedUtils {
         vm.stopPrank();
     }
 
-    function _getDefaultSessionData() internal view returns (bytes memory) {
-        TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
+    function _createResourceLock(
+        address _wallet
+    ) internal view returns (bytes memory) {
+        TokenData[] memory td = new TokenData[](tokens.length);
         for (uint256 i; i < tokens.length; ++i) {
-            tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
+            td[i] = TokenData(tokens[i], amounts[i]);
         }
-        return abi.encode(sessionKey, validAfter, validUntil, tokenAmounts);
+        ResourceLock memory rl = ResourceLock({
+            chainId: 42161, // Arbitrum
+            smartWallet: _wallet,
+            sessionKey: sessionKey,
+            validAfter: validAfter,
+            validUntil: validUntil,
+            tokenData: td,
+            nonce: 1
+        });
+        return abi.encode(rl);
     }
 
-    function _enableDefaultSessionKey() internal {
-        bytes memory sessionData = _getDefaultSessionData();
-        credibleAccountModule.enableSessionKey(sessionData);
+    function _enableDefaultSessionKey(address _wallet) internal {
+        bytes memory rl = _createResourceLock(_wallet);
+        credibleAccountModule.enableSessionKey(rl);
     }
 
     function _createTokenTransferExecution(

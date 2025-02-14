@@ -248,7 +248,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         // Set up the test environment with CredibleAccountModule
         _testSetup();
         // Enable session key
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Claim all tokens by solver
         _claimTokensBySolver(amounts[0], amounts[1], amounts[2]);
         // Get previous validator in linked list
@@ -298,7 +298,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         // Set up the test environment with CredibleAccountModule
         _testSetup();
         // Enable session key
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Get previous validator in linked list
         address prevValidator = _getPrevValidator(
             address(credibleAccountModule)
@@ -333,7 +333,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         // Set up the test environment with CredibleAccountModule
         _testSetup();
         // Enable session key
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Claim all tokens by solver
         _claimTokensBySolver(amounts[0], amounts[1], amounts[2]);
         // Verify that the hook is installed via the multiplexer for the wallet
@@ -378,7 +378,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         // Set up the test environment with CredibleAccountModule
         _testSetup();
         // Enable session key
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Warp to after session key expiration
         vm.warp(validUntil + 1);
         // Verify that the hook is installed via the multiplexer for the wallet
@@ -419,7 +419,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         // Set up the test environment with CredibleAccountModule
         _testSetup();
         // Enable session key
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Try to remove the hook from the multiplexer
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -447,7 +447,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
             sessionKey,
             address(mew)
         );
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Verify that the session key is enabled
         assertEq(
             credibleAccountModule.getSessionKeysByWallet().length,
@@ -530,11 +530,16 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         for (uint256 i; i < tokens.length; ++i) {
             tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
         }
-        bytes memory sessionData = abi.encode(
-            address(0),
-            validAfter,
-            validUntil,
-            tokenAmounts
+        bytes memory rl = abi.encode(
+            ResourceLock({
+                chainId: 42161,
+                smartWallet: address(mew),
+                sessionKey: address(0),
+                validAfter: validAfter,
+                validUntil: validUntil,
+                tokenData: tokenAmounts,
+                nonce: 2
+            })
         );
         // Attempt to enable the session key
         vm.expectRevert(
@@ -542,7 +547,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
                 CAM.CredibleAccountModule_InvalidSessionKey.selector
             )
         );
-        credibleAccountModule.enableSessionKey(sessionData);
+        credibleAccountModule.enableSessionKey(rl);
     }
 
     // Test: Enabling a session key with an invalid validAfter should revert
@@ -553,11 +558,16 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         for (uint256 i; i < tokens.length; ++i) {
             tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
         }
-        bytes memory sessionData = abi.encode(
-            sessionKey,
-            uint48(0),
-            validUntil,
-            tokenAmounts
+        bytes memory rl = abi.encode(
+            ResourceLock({
+                chainId: 42161,
+                smartWallet: address(mew),
+                sessionKey: sessionKey,
+                validAfter: uint48(0),
+                validUntil: validUntil,
+                tokenData: tokenAmounts,
+                nonce: 2
+            })
         );
         // Attempt to enable the session key
         vm.expectRevert(
@@ -565,7 +575,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
                 CAM.CredibleAccountModule_InvalidValidAfter.selector
             )
         );
-        credibleAccountModule.enableSessionKey(sessionData);
+        credibleAccountModule.enableSessionKey(rl);
     }
 
     // Test: Enabling a session key with an invalid validUntil should revert
@@ -577,11 +587,16 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         for (uint256 i; i < tokens.length; ++i) {
             tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
         }
-        bytes memory sessionData = abi.encode(
-            sessionKey,
-            validAfter,
-            uint48(0),
-            tokenAmounts
+        bytes memory rl = abi.encode(
+            ResourceLock({
+                chainId: 42161,
+                smartWallet: address(mew),
+                sessionKey: sessionKey,
+                validAfter: validAfter,
+                validUntil: uint48(0),
+                tokenData: tokenAmounts,
+                nonce: 2
+            })
         );
         // Attempt to enable the session key
         vm.expectRevert(
@@ -590,13 +605,18 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
                 0
             )
         );
-        credibleAccountModule.enableSessionKey(sessionData);
+        credibleAccountModule.enableSessionKey(rl);
         // validUntil that is less than validAfter
-        sessionData = abi.encode(
-            sessionKey,
-            validAfter,
-            validAfter - 1,
-            tokenAmounts
+        rl = abi.encode(
+            ResourceLock({
+                chainId: 42161,
+                smartWallet: address(mew),
+                sessionKey: sessionKey,
+                validAfter: validAfter,
+                validUntil: validAfter - 1,
+                tokenData: tokenAmounts,
+                nonce: 2
+            })
         );
         // Attempt to enable the session key
         vm.expectRevert(
@@ -605,14 +625,14 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
                 validAfter - 1
             )
         );
-        credibleAccountModule.enableSessionKey(sessionData);
+        credibleAccountModule.enableSessionKey(rl);
     }
 
     // Test: Verify that a session key can be disabled
     function test_disableSessionKey() public {
         // Set up the test environment and enable a session key
         _testSetup();
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Claim tokens by solver
         _claimTokensBySolver(amounts[0], amounts[1], amounts[2]);
         // Expect emit a session key disabled event
@@ -631,7 +651,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
     {
         // Set up the test environment and enable a session key
         _testSetup();
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Warp to a time after the session key has expired
         vm.warp(validUntil + 1);
         // Expect emit a session key disabled event
@@ -647,7 +667,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
     function test_disableSessionKey_revertIf_invalidSessionKey() public {
         // Set up the test environment and enable a session key
         _testSetup();
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Claim tokens by solver
         _claimTokensBySolver(amounts[0], amounts[1], amounts[2]);
         // Attempt to disable the session key
@@ -664,7 +684,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
     function test_disableSessionKey_revertIf_TokensNotClaimed() public {
         // Set up the test environment and enable a session key
         _testSetup();
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Attempt to disable the session key
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -679,7 +699,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
     function test_getSessionKeysByWallet() public {
         // Set up the test environment and enable a session key
         _testSetup();
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         address[] memory sessions = credibleAccountModule
             .getSessionKeysByWallet();
         assertEq(
@@ -698,7 +718,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
     function test_getSessionKeyData() public {
         // Set up the test environment and enable a session key
         _testSetup();
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         SessionData memory sessionData = credibleAccountModule
             .getSessionKeyData(sessionKey);
         assertEq(
@@ -719,7 +739,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
     {
         // Set up the test environment and enable a session key
         _testSetup();
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         SessionData memory sessionData = credibleAccountModule
             .getSessionKeyData(dummySessionKey);
         // All retrieved session data should be default values
@@ -739,7 +759,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
     function test_getLockedTokensForSessionKey() public {
         // Set up the test environment and enable a session key
         _testSetup();
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         ICAM.LockedToken[] memory lockedTokens = credibleAccountModule
             .getLockedTokensForSessionKey(sessionKey);
         assertEq(
@@ -799,18 +819,23 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
     function test_tokenTotalLockedForWallet() public {
         // Set up the test environment and enable a session key
         _testSetup();
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Enable another session key
         usdc.mint(address(mew), 10e6);
         TokenData[] memory newTokenData = new TokenData[](1);
         newTokenData[0] = TokenData(address(usdc), 10e6);
-        bytes memory newSessionData = abi.encode(
-            dummySessionKey,
-            validAfter,
-            validUntil,
-            newTokenData
+        bytes memory rl = abi.encode(
+            ResourceLock({
+                chainId: 42161,
+                smartWallet: address(mew),
+                sessionKey: dummySessionKey,
+                validAfter: validAfter,
+                validUntil: validUntil,
+                tokenData: newTokenData,
+                nonce: 2
+            })
         );
-        credibleAccountModule.enableSessionKey(newSessionData);
+        credibleAccountModule.enableSessionKey(rl);
         uint256 totalUSDCLocked = credibleAccountModule
             .tokenTotalLockedForWallet(address(usdc));
         assertEq(
@@ -824,7 +849,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         // Set up the test environment and enable a session key
         _testSetup();
         TestWETH weth = new TestWETH();
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Enable another session key
         uint256[4] memory newAmounts = [
             uint256(10e6),
@@ -843,13 +868,18 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         }
         // Append WETH lock onto newTokenData
         newTokenData[3] = TokenData(address(weth), newAmounts[3]);
-        bytes memory newSessionData = abi.encode(
-            dummySessionKey,
-            validAfter,
-            validUntil,
-            newTokenData
+        bytes memory rl = abi.encode(
+            ResourceLock({
+                chainId: 42161,
+                smartWallet: address(mew),
+                sessionKey: dummySessionKey,
+                validAfter: validAfter,
+                validUntil: validUntil,
+                tokenData: newTokenData,
+                nonce: 2
+            })
         );
-        credibleAccountModule.enableSessionKey(newSessionData);
+        credibleAccountModule.enableSessionKey(rl);
         // Get cumulative locked funds for wallet
         TokenData[] memory data = credibleAccountModule
             .cumulativeLockedForWallet();
@@ -900,7 +930,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
     function test_enableSessionKey_viaUserOp() public {
         // Set up the test environment and enable a session key
         _testSetup();
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Enable another session key
         uint256[2] memory newAmounts = [uint256(10e6), uint256(40e18)];
 
@@ -924,17 +954,22 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         // Append WETH lock onto newTokenData
         //newTokenData[3] = TokenData(address(weth), newAmounts[0]);
 
-        bytes memory newSessionData = abi.encode(
-            dummySessionKey,
-            validAfter,
-            validUntil,
-            newTokenData
+        bytes memory rl = abi.encode(
+            ResourceLock({
+                chainId: 42161,
+                smartWallet: address(mew),
+                sessionKey: dummySessionKey,
+                validAfter: validAfter,
+                validUntil: validUntil,
+                tokenData: newTokenData,
+                nonce: 2
+            })
         );
         console.log("mew address is: ", address(mew));
         vm.startPrank(address(mew));
         bytes memory enableSessionKeyData = abi.encodeWithSelector(
             CAM.enableSessionKey.selector,
-            newSessionData
+            rl
         );
         console.log("enableSessionKeyData is: ");
         console.logBytes(enableSessionKeyData);
@@ -951,17 +986,22 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         ); // DAI
 
         // Solidity code to encode the session data
-        bytes memory newSessionData2 = abi.encode(
-            0xB071527c3721215A46958d172A42E7E3BDd1DF46, // sessionKey
-            uint48(1729743735), // validAfter
-            uint48(1729744025), // validUntil
-            newTokenData2
+        bytes memory newRl = abi.encode(
+            ResourceLock({
+                chainId: 42161,
+                smartWallet: address(mew),
+                sessionKey: 0xB071527c3721215A46958d172A42E7E3BDd1DF46,
+                validAfter: uint48(1729743735),
+                validUntil: uint48(1729744025),
+                tokenData: newTokenData2,
+                nonce: 3
+            })
         );
 
         // Encode the function call data with the function selector and the encoded session data
         bytes memory enableSessionKeyData2 = abi.encodeWithSelector(
             CAM.enableSessionKey.selector,
-            newSessionData2
+            newRl
         );
 
         console.log("enableSessionKeyData2 is: ");
@@ -1020,7 +1060,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
     function test_isSessionClaimed_true() public {
         // Set up the test environment and enable a session key
         _testSetup();
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Claim tokens by solver
         _claimTokensBySolver(amounts[0], amounts[1], amounts[2]);
         assertTrue(credibleAccountModule.isSessionClaimed(sessionKey));
@@ -1030,7 +1070,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
     function test_isSessionClaimed_false() public {
         // Set up the test environment and enable a session key
         _testSetup();
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         assertFalse(credibleAccountModule.isSessionClaimed(sessionKey));
     }
 
@@ -1065,7 +1105,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         // Set up the test environment
         _testSetup();
         // Get enableSessionKey UserOperation
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Claim tokens by solver
         _claimTokensBySolver(amounts[0], amounts[1], amounts[2]);
         // Check tokens are unlocked
@@ -1080,7 +1120,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         // Set up the test environment
         _testSetup();
         // Enable session key
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Set up calldata batch
         bytes memory usdcData = _createTokenTransferFromExecution(
             address(mew),
@@ -1148,7 +1188,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         // Set up the test environment
         _testSetup();
         // Get enableSessionKey UserOperation
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Warp time to expire the session key
         vm.warp(validUntil + 1);
         // Claim tokens by solver
@@ -1214,7 +1254,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         // Set up the test environment
         _testSetup();
         // Get enableSessionKey UserOperation
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Claim tokens by solver that dont match locked amounts
         bytes memory usdcData = _createTokenTransferFromExecution(
             address(mew),
@@ -1280,7 +1320,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         // Set up the test environment
         _testSetup();
         // Enable session key
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Mint extra tokens to wallet
         dai.mint(address(mew), 1e18);
         // Set up calldata batch
@@ -1330,7 +1370,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         // Set up the test environment
         _testSetup();
         // Enable session key
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Mint extra tokens to wallet
         usdc.mint(address(mew), 1e6);
         dai.mint(address(mew), 1e18);
@@ -1412,7 +1452,7 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         uni.mint(address(uniswapV2), 10e18);
         dai.approve(address(uniswapV2), 2e18);
         // Enable session key
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         // Mint extra tokens to wallet
         dai.mint(address(mew), 1e18);
         // Set up calldata trying to swap 1 DAI more than unlocked balance
@@ -1501,8 +1541,8 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         // Set up the test environment and enable a session key
         _testSetup();
         // Lock some tokens
-        bytes memory sessionData = _getDefaultSessionData();
-        harness.enableSessionKey(sessionData);
+        bytes memory rl = _createResourceLock(address(mew));
+        harness.enableSessionKey(rl);
         // Prepare user operation data
         bytes memory data = _createTokenTransferFromExecution(
             address(mew),
@@ -1543,20 +1583,25 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         // Set up the test environment
         _testSetup();
         // Lock some tokens
-        bytes memory sessionData = _getDefaultSessionData();
-        harness.enableSessionKey(sessionData);
+        bytes memory rl = _createResourceLock(address(mew));
+        harness.enableSessionKey(rl);
         // Lock same tokens again uder different session key
         TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
         for (uint256 i; i < tokens.length; ++i) {
             tokenAmounts[i] = TokenData(tokens[i], 1 wei);
         }
-        bytes memory moreSessionData = abi.encode(
-            dummySessionKey,
-            validAfter,
-            validUntil,
-            tokenAmounts
+        bytes memory anotherRl = abi.encode(
+            ResourceLock({
+                chainId: 42161,
+                smartWallet: address(mew),
+                sessionKey: dummySessionKey,
+                validAfter: validAfter,
+                validUntil: validUntil,
+                tokenData: tokenAmounts,
+                nonce: 2
+            })
         );
-        harness.enableSessionKey(moreSessionData);
+        harness.enableSessionKey(anotherRl);
         // Verify both session keys enabled successfully
         assertEq(
             harness.getSessionKeysByWallet().length,
@@ -1599,8 +1644,8 @@ contract CredibleAccountModule_Concrete_Test is LocalTestUtils {
         // Set up the test environment
         _testSetup();
         // Lock some tokens
-        bytes memory sessionData = _getDefaultSessionData();
-        harness.enableSessionKey(sessionData);
+        bytes memory rl = _createResourceLock(address(mew));
+        harness.enableSessionKey(rl);
         assertEq(
             harness.getSessionKeysByWallet()[0],
             sessionKey,

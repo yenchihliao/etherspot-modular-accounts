@@ -46,6 +46,17 @@ struct TokenData {
     uint256 amount;
 }
 
+// CredibleAccountModule
+struct ResourceLock {
+    uint256 chainId;
+    address smartWallet;
+    address sessionKey;
+    uint48 validAfter;
+    uint48 validUntil;
+    TokenData[] tokenData;
+    uint256 nonce;
+}
+
 // HookMultiplexer
 struct SigHookInit {
     bytes4 sig;

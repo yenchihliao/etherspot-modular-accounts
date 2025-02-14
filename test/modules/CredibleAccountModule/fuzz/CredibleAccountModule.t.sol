@@ -42,13 +42,18 @@ contract CredibleAccountModule_Fuzz_Test is LocalTestUtils {
             vm.assume(_amounts[i] > 0);
             tokenAmounts[i] = TokenData(_tokens[i], _amounts[i]);
         }
-        bytes memory sessionData = abi.encode(
-            _sessionKey,
-            _validAfter,
-            _validUntil,
-            tokenAmounts
+        bytes memory rl = abi.encode(
+            ResourceLock({
+                chainId: 42161,
+                smartWallet: address(mew),
+                sessionKey: _sessionKey,
+                validAfter: _validAfter,
+                validUntil: _validUntil,
+                tokenData: tokenAmounts,
+                nonce: 2
+            })
         );
-        credibleAccountModule.enableSessionKey(sessionData);
+        credibleAccountModule.enableSessionKey(rl);
         // Get session key data and validate
         SessionData memory retrievedData = credibleAccountModule
             .getSessionKeyData(_sessionKey);
@@ -81,13 +86,18 @@ contract CredibleAccountModule_Fuzz_Test is LocalTestUtils {
         for (uint256 i; i < tokens.length; ++i) {
             tokenAmounts[i] = TokenData(tokens[i], _lockedAmounts[i]);
         }
-        bytes memory sessionData = abi.encode(
-            sk,
-            validAfter,
-            validUntil,
-            tokenAmounts
+        bytes memory rl = abi.encode(
+            ResourceLock({
+                chainId: 42161,
+                smartWallet: address(mew),
+                sessionKey: sk,
+                validAfter: validAfter,
+                validUntil: validUntil,
+                tokenData: tokenAmounts,
+                nonce: 2
+            })
         );
-        credibleAccountModule.enableSessionKey(sessionData);
+        credibleAccountModule.enableSessionKey(rl);
         // Claim tokens to allow disabling
         bytes memory usdcData = _createTokenTransferFromExecution(
             address(mew),
@@ -156,7 +166,7 @@ contract CredibleAccountModule_Fuzz_Test is LocalTestUtils {
     ) public {
         vm.assume(_sessionKey != address(0));
         // Enable a session key first
-        _enableDefaultSessionKey();
+        _enableDefaultSessionKey(address(mew));
         PackedUserOperation memory userOp;
         userOp.callData = _callData;
         userOp.sender = address(mew);
@@ -186,13 +196,18 @@ contract CredibleAccountModule_Fuzz_Test is LocalTestUtils {
         for (uint256 i; i < tokens.length; ++i) {
             tokenAmounts[i] = TokenData(tokens[i], _claimAmounts[i]);
         }
-        bytes memory sessionData = abi.encode(
-            sessionKey,
-            validAfter,
-            validUntil,
-            tokenAmounts
+        bytes memory rl = abi.encode(
+            ResourceLock({
+                chainId: 42161,
+                smartWallet: address(mew),
+                sessionKey: sessionKey,
+                validAfter: validAfter,
+                validUntil: validUntil,
+                tokenData: tokenAmounts,
+                nonce: 2
+            })
         );
-        credibleAccountModule.enableSessionKey(sessionData);
+        credibleAccountModule.enableSessionKey(rl);
         // Claim tokens by solver
         _claimTokensBySolver(
             _claimAmounts[0],

@@ -77,35 +77,37 @@ contract CredibleAccountModule is ICredibleAccountModule {
     //////////////////////////////////////////////////////////////*/
 
     // @inheritdoc ICredibleAccountModule
-    function enableSessionKey(bytes calldata _sessionData) external {
-        (
-            address sessionKey,
-            uint48 validAfter,
-            uint48 validUntil,
-            TokenData[] memory tokenAmounts
-        ) = abi.decode(_sessionData, (address, uint48, uint48, TokenData[]));
-        if (sessionKey == address(0))
+    function enableSessionKey(bytes calldata _resourceLock) external {
+        ResourceLock memory rl = abi.decode(_resourceLock, (ResourceLock));
+        // (
+        //     address sessionKey,
+        //     uint48 validAfter,
+        //     uint48 validUntil,
+        //     TokenData[] memory tokenAmounts
+        // ) = abi.decode(_sessionData, (address, uint48, uint48, TokenData[]));
+        if (rl.sessionKey == address(0))
             revert CredibleAccountModule_InvalidSessionKey();
-        if (validAfter == 0) revert CredibleAccountModule_InvalidValidAfter();
-        if (validUntil == 0 || validUntil <= validAfter)
-            revert CredibleAccountModule_InvalidValidUntil(validUntil);
-        sessionData[sessionKey][msg.sender] = SessionData({
-            sessionKey: sessionKey,
-            validAfter: validAfter,
-            validUntil: validUntil,
+        if (rl.validAfter == 0)
+            revert CredibleAccountModule_InvalidValidAfter();
+        if (rl.validUntil == 0 || rl.validUntil <= rl.validAfter)
+            revert CredibleAccountModule_InvalidValidUntil(rl.validUntil);
+        sessionData[rl.sessionKey][msg.sender] = SessionData({
+            sessionKey: rl.sessionKey,
+            validAfter: rl.validAfter,
+            validUntil: rl.validUntil,
             live: true // unused
         });
-        for (uint256 i; i < tokenAmounts.length; ++i) {
-            lockedTokens[sessionKey].push(
+        for (uint256 i; i < rl.tokenData.length; ++i) {
+            lockedTokens[rl.sessionKey].push(
                 LockedToken({
-                    token: tokenAmounts[i].token,
-                    lockedAmount: tokenAmounts[i].amount,
+                    token: rl.tokenData[i].token,
+                    lockedAmount: rl.tokenData[i].amount,
                     claimedAmount: 0
                 })
             );
         }
-        walletSessionKeys[msg.sender].push(sessionKey);
-        emit CredibleAccountModule_SessionKeyEnabled(sessionKey, msg.sender);
+        walletSessionKeys[msg.sender].push(rl.sessionKey);
+        emit CredibleAccountModule_SessionKeyEnabled(rl.sessionKey, msg.sender);
     }
 
     // @inheritdoc ICredibleAccountModule
