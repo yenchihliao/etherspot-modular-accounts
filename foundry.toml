@@ -5,6 +5,7 @@ libs = ["dependencies"]
 bytecodeHash = "none"
 cbor_metadata = false
 solc_version = '0.8.23'
+evm_version = "london"
 deny_warnings = true
 optimizer = true
 runs = 256
@@ -20,7 +21,7 @@ remappings = [
 auto_detect_remappings = false
 
 [fuzz]
-runs = 1000
+runs = 256
 
 [soldeer]
 remappings_generate = false
@@ -29,7 +30,6 @@ remappings_version = false
 remappings_location = "txt"
 remappings_prefix = ""
 recursive_deps = true
-
 
 [dependencies]
 solady = "0.1.8"

@@ -74,3 +74,17 @@ MIT
 [npm-image]: https://badge.fury.io/js/%40etherspot%2Flite-contracts.svg
 [npm-url]: https://npmjs.org/package/@etherspot/lite-contracts
 [license-image]: https://img.shields.io/badge/license-MIT-blue.svg
+
+## Addresses
+
+<details>
+<summary>v1.0.0</summary>
+
+| Name                                       | Address                                    |
+| ------------------------------------------ | ------------------------------------------ |
+| ModularEtherspotWallet                     | [0x339eAB59e54fE25125AceC3225254a0cBD305A7b](https://contractscan.xyz/contract/0x339eAB59e54fE25125AceC3225254a0cBD305A7b) |
+| ModularEtherspotWalletFactory              | [0x2A40091f044e48DEB5C0FCbc442E443F3341B451](https://contractscan.xyz/contract/0x2A40091f044e48DEB5C0FCbc442E443F3341B451) |
+| Bootstrap                                  | [0x0D5154d7751b6e2fDaa06F0cC9B400549394C8AA](https://contractscan.xyz/contract/0x0D5154d7751b6e2fDaa06F0cC9B400549394C8AA) |
+| MultipleOwnerECDSAValidator                | [0x0740Ed7c11b9da33d9C80Bd76b826e4E90CC1906](https://contractscan.xyz/contract/0x0740Ed7c11b9da33d9C80Bd76b826e4E90CC1906) |
+
+</details>
