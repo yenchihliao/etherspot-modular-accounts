@@ -4,11 +4,11 @@ pragma solidity 0.8.23;
 import {ECDSA} from "solady/src/utils/ECDSA.sol";
 import {IERC20} from "openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
-import "../../erc7579-ref-impl/interfaces/IERC7579Account.sol";
-import {MODULE_TYPE_VALIDATOR, VALIDATION_FAILED, VALIDATION_SUCCESS} from "../../erc7579-ref-impl/interfaces/IERC7579Module.sol";
 import "ERC4337/core/Helpers.sol";
-import "../../erc7579-ref-impl/libs/ModeLib.sol";
-import "../../erc7579-ref-impl/libs/ExecutionLib.sol";
+import "ERC7579/interfaces/IERC7579Account.sol";
+import {MODULE_TYPE_VALIDATOR, VALIDATION_FAILED, VALIDATION_SUCCESS} from "ERC7579/interfaces/IERC7579Module.sol";
+import "ERC7579/libs/ModeLib.sol";
+import "ERC7579/libs/ExecutionLib.sol";
 import {IERC20SessionKeyValidator} from "../../interfaces/IERC20SessionKeyValidator.sol";
 import {ArrayLib} from "../../libraries/ArrayLib.sol";
 

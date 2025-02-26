@@ -2,14 +2,14 @@
 pragma solidity 0.8.23;
 
 import "forge-std/Test.sol";
+import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
+import "ERC7579/test/dependencies/EntryPoint.sol";
 import {ModularEtherspotWallet} from "../../../../src/wallet/ModularEtherspotWallet.sol";
 import {SessionKeyValidator} from "../../../../src/modules/validators/SessionKeyValidator.sol";
 import {ExecutionValidation, ParamCondition, Permission, SessionData} from "../../../../src/common/Structs.sol";
 import {ComparisonRule} from "../../../../src/common/Enums.sol";
 import {SessionKeyValidatorHarness} from "../../../harnesses/SessionKeyValidatorHarness.sol";
 import {TestCounter} from "../../../../src/test/TestCounter.sol";
-import "../../../../src/erc7579-ref-impl/test/dependencies/EntryPoint.sol";
-import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
 import "../../../TestAdvancedUtils.t.sol";
 import "../../../../src/utils/ERC4337Utils.sol";
 

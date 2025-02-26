@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.23;
 
-import "../../erc7579-ref-impl/interfaces/IERC7579Module.sol";
+import "ERC7579/interfaces/IERC7579Module.sol";
 
 contract ERC1155FallbackHandler is IFallback {
     /*//////////////////////////////////////////////////////////////

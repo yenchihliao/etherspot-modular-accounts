@@ -2,7 +2,7 @@
 pragma solidity 0.8.23;
 
 import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
-import {IValidator} from "../erc7579-ref-impl/interfaces/IERC7579Module.sol";
+import {IValidator} from "ERC7579/interfaces/IERC7579Module.sol";
 import {ExecutionValidation, ParamCondition, Permission, SessionData} from "../common/Structs.sol";
 
 interface ISessionKeyValidator is IValidator {

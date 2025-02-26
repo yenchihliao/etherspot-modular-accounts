@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import "../erc7579-ref-impl/libs/ModeLib.sol";
-import {ExecutionLib} from "../erc7579-ref-impl/libs/ExecutionLib.sol";
-import {ExecutionHelper} from "../erc7579-ref-impl/core/ExecutionHelper.sol";
 import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
-import "../erc7579-ref-impl/interfaces/IERC7579Module.sol";
+import "ERC7579/libs/ModeLib.sol";
+import {ExecutionLib} from "ERC7579/libs/ExecutionLib.sol";
+import {ExecutionHelper} from "ERC7579/core/ExecutionHelper.sol";
+import "ERC7579/interfaces/IERC7579Module.sol";
+import {ModuleManager} from "ERC7579/core/ModuleManager.sol";
+import {HookManager} from "ERC7579/core/HookManager.sol";
 import {IModularEtherspotWallet} from "../interfaces/IModularEtherspotWallet.sol";
-import {ModuleManager} from "../erc7579-ref-impl/core/ModuleManager.sol";
-import {HookManager} from "../erc7579-ref-impl/core/HookManager.sol";
 import {AccessController} from "../access/AccessController.sol";
 
 contract ModularEtherspotWallet is

@@ -1,51 +1,78 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.23;
+pragma solidity 0.8.23;
 
-import {IValidator} from "ERC7579/interfaces/IERC7579Module.sol";
-import {IERC7579Account} from "ERC7579/interfaces/IERC7579Account.sol";
 import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
+import {IValidator, IHook} from "ERC7579/interfaces/IERC7579Module.sol";
+import {IERC7579Account} from "ERC7579/interfaces/IERC7579Account.sol";
+import "../common/Structs.sol";
 
-/// @title ERC20SessionKeyValidator Interface
+/// @title CredibleAccountModule Interface
 /// @author Etherspot
-/// @notice This interface defines the functions and events of the ERC20SessionKeyValidator contract.
-interface IERC20SessionKeyValidator is IValidator {
+/// @notice This interface defines the functions and events of the CredibleAccountModule contract.
+interface ICredibleAccountModule is IValidator, IHook {
+    /*//////////////////////////////////////////////////////////////
+                            STRUCTS/ENUMS
+    //////////////////////////////////////////////////////////////*/
+
+    struct Initialization {
+        bool validatorInitialized;
+        bool hookInitialized;
+    }
+
+    /// @notice Struct representing the data associated with a session key.
+    struct LockedToken {
+        address token;
+        uint256 lockedAmount;
+        uint256 claimedAmount;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                EVENTS
+    //////////////////////////////////////////////////////////////*/
+
     /// @notice Emitted when the ERC20 Session Key Validator module is installed for a wallet.
     /// @param wallet The address of the wallet for which the module is installed.
-    event ERC20SKV_ModuleInstalled(address wallet);
+    event CredibleAccountModule_ModuleInstalled(address wallet);
 
     /// @notice Emitted when the ERC20 Session Key Validator module is uninstalled from a wallet.
     /// @param wallet The address of the wallet from which the module is uninstalled.
-    event ERC20SKV_ModuleUninstalled(address wallet);
+    event CredibleAccountModule_ModuleUninstalled(address wallet);
 
     /// @notice Emitted when a new session key is enabled for a wallet.
     /// @param sessionKey The address of the session key.
     /// @param wallet The address of the wallet for which the session key is enabled.
-    event ERC20SKV_SessionKeyEnabled(address sessionKey, address wallet);
+    event CredibleAccountModule_SessionKeyEnabled(
+        address indexed sessionKey,
+        address indexed wallet
+    );
 
     /// @notice Emitted when a session key is disabled for a wallet.
     /// @param sessionKey The address of the session key.
     /// @param wallet The address of the wallet for which the session key is disabled.
-    event ERC20SKV_SessionKeyDisabled(address sessionKey, address wallet);
+    event CredibleAccountModule_SessionKeyDisabled(
+        address sessionKey,
+        address wallet
+    );
 
     /// @notice Emitted when a session key is paused for a wallet.
     /// @param sessionKey The address of the session key.
     /// @param wallet The address of the wallet for which the session key is paused.
-    event ERC20SKV_SessionKeyPaused(address sessionKey, address wallet);
+    event CredibleAccountModule_SessionKeyPaused(
+        address sessionKey,
+        address wallet
+    );
 
     /// @notice Emitted when a session key is unpaused for a wallet.
     /// @param sessionKey The address of the session key.
     /// @param wallet The address of the wallet for which the session key is unpaused.
-    event ERC20SKV_SessionKeyUnpaused(address sessionKey, address wallet);
+    event CredibleAccountModule_SessionKeyUnpaused(
+        address sessionKey,
+        address wallet
+    );
 
-    /// @notice Struct representing the data associated with a session key.
-    struct SessionData {
-        address token; // The ERC20 token contract address.
-        bytes4 funcSelector; // The function selector for the allowed operation (e.g., transfer, transferFrom).
-        uint256 spendingLimit; // The maximum amount that can be spent with this session key.
-        uint48 validAfter; // The timestamp after which the session key is valid.
-        uint48 validUntil; // The timestamp until which the session key is valid.
-        bool live; // Flag indicating whether the session key is paused or not.
-    }
+    /*//////////////////////////////////////////////////////////////
+                              FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Enables a new session key for the caller's wallet.
     /// @param _sessionData The encoded session data containing the session key address, token address, interface ID, function selector, spending limit, valid after timestamp, and valid until timestamp.
@@ -54,25 +81,6 @@ interface IERC20SessionKeyValidator is IValidator {
     /// @notice Disables a session key for the caller's wallet.
     /// @param _session The address of the session key to disable.
     function disableSessionKey(address _session) external;
-
-    /// @notice Rotates a session key by disabling the old one and enabling a new one.
-    /// @param _oldSessionKey The address of the old session key to disable.
-    /// @param _newSessionData The encoded session data for the new session key.
-    function rotateSessionKey(
-        address _oldSessionKey,
-        bytes calldata _newSessionData
-    ) external;
-
-    /// @notice Toggles the pause state of a session key for the caller's wallet.
-    /// @param _sessionKey The address of the session key to toggle the pause state for.
-    function toggleSessionKeyPause(address _sessionKey) external;
-
-    /// @notice Checks if a session key is paused for the caller's wallet.
-    /// @param _sessionKey The address of the session key to check.
-    /// @return paused True if the session key is paused, false otherwise.
-    function isSessionKeyLive(
-        address _sessionKey
-    ) external view returns (bool paused);
 
     /// @notice Validates the parameters of a session key for a given user operation.
     /// @param _sessionKey The address of the session key.
@@ -85,10 +93,16 @@ interface IERC20SessionKeyValidator is IValidator {
 
     /// @notice Returns the list of associated session keys for the caller's wallet.
     /// @return keys The array of associated session key addresses.
-    function getAssociatedSessionKeys()
+    function getSessionKeysByWallet()
         external
         view
         returns (address[] memory keys);
+
+    /// @notice Returns the list of associated session keys for the provided wallet.
+    /// @return keys The array of associated session key addresses.
+    function getSessionKeysByWallet(
+        address _wallet
+    ) external view returns (address[] memory keys);
 
     /// @notice Returns the session data for a given session key and the caller's wallet.
     /// @param _sessionKey The address of the session key.
@@ -96,6 +110,33 @@ interface IERC20SessionKeyValidator is IValidator {
     function getSessionKeyData(
         address _sessionKey
     ) external view returns (SessionData memory data);
+
+    /// @notice Retrieves all locked tokens for a specific session key
+    /// @param _sessionKey The address of the session key to query
+    /// @return An array of LockedToken structs associated with the given session key
+    function getLockedTokensForSessionKey(
+        address _sessionKey
+    ) external view returns (LockedToken[] memory);
+
+    /// @notice Retrieves the total locked amount for a specific token across all session keys for the calling wallet
+    /// @param _token The address of the token to check
+    /// @return The total locked amount of the specified token
+    function tokenTotalLockedForWallet(
+        address _token
+    ) external view returns (uint256);
+
+    /// @notice Retrieves the cumulative locked amounts for all unique tokens across all session keys for the calling wallet
+    /// @return An array of TokenData structures containing token addresses and their corresponding locked amounts
+    function cumulativeLockedForWallet()
+        external
+        view
+        returns (TokenData[] memory);
+
+    /// @notice Checks if all tokens for a given session key have been claimed
+    /// @dev Iterates through all locked tokens for the session key
+    /// @param _sessionKey The address of the session key to check
+    /// @return bool True if all tokens are claimed, false otherwise
+    function isSessionClaimed(address _sessionKey) external view returns (bool);
 
     /// @notice Validates a user operation using a session key.
     /// @param userOp The packed user operation.
@@ -134,4 +175,21 @@ interface IERC20SessionKeyValidator is IValidator {
     /// @param smartAccount The address of the smart account.
     /// @return True if the smart account is initialized, false otherwise.
     function isInitialized(address smartAccount) external view returns (bool);
+
+    /// @notice Performs pre-execution checks and prepares hook data
+    /// @dev This function is called before the main execution
+    /// @param msgSender The address initiating the transaction
+    /// @param msgValue The amount of Ether sent with the transaction
+    /// @param msgData The calldata of the transaction
+    /// @return hookData Encoded data to be used in post-execution checks
+    function preCheck(
+        address msgSender,
+        uint256 msgValue,
+        bytes calldata msgData
+    ) external returns (bytes memory hookData);
+
+    /// @notice Performs post-execution checks using the hook data
+    /// @dev This function is called after the main execution
+    /// @param hookData The data prepared by preCheck function
+    function postCheck(bytes calldata hookData) external;
 }

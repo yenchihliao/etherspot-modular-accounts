@@ -2,6 +2,12 @@
 pragma solidity 0.8.23;
 
 import "forge-std/Test.sol";
+import {IEntryPoint} from "ERC4337/interfaces/IEntryPoint.sol";
+import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
+import {IERC20} from "openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {MODULE_TYPE_VALIDATOR} from "ERC7579/interfaces/IERC7579Module.sol";
+import {SentinelListLib} from "ERC7579/libs/SentinelList.sol";
+import "ERC7579/test/dependencies/EntryPoint.sol";
 import {ModularEtherspotWallet} from "../../../../src/wallet/ModularEtherspotWallet.sol";
 import {SessionKeyValidator} from "../../../../src/modules/validators/SessionKeyValidator.sol";
 import {ExecutionValidation, ParamCondition, Permission, SessionData} from "../../../../src/common/Structs.sol";
@@ -13,14 +19,8 @@ import {TestUniswapV2} from "../../../../src/test/TestUniswapV2.sol";
 import {TestUniswapV3} from "../../../../src/test/TestUniswapV3.sol";
 import {TestERC721} from "../../../../src/test/TestERC721.sol";
 import {SessionKeyTestUtils} from "../utils/SessionKeyTestUtils.sol";
-import "../../../../src/erc7579-ref-impl/test/dependencies/EntryPoint.sol";
-import {IEntryPoint} from "ERC4337/interfaces/IEntryPoint.sol";
-import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
-import {MODULE_TYPE_VALIDATOR} from "../../../../src/erc7579-ref-impl/interfaces/IERC7579Module.sol";
 import "../../../TestAdvancedUtils.t.sol";
 import "../../../../src/utils/ERC4337Utils.sol";
-import {SentinelListLib} from "../../../../src/erc7579-ref-impl/libs/SentinelList.sol";
-import {IERC20} from "openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 using ERC4337Utils for IEntryPoint;
 

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {IExecutor, MODULE_TYPE_EXECUTOR} from "../erc7579-ref-impl/interfaces/IERC7579Module.sol";
-import {IERC7579Account, Execution} from "../erc7579-ref-impl/interfaces/IERC7579Account.sol";
-import {ExecutionLib} from "../erc7579-ref-impl/libs/ExecutionLib.sol";
-import {ModeLib, CALLTYPE_DELEGATECALL, EXECTYPE_DEFAULT, MODE_DEFAULT, ModePayload} from "../erc7579-ref-impl/libs/ModeLib.sol";
+import {IExecutor, MODULE_TYPE_EXECUTOR} from "ERC7579/interfaces/IERC7579Module.sol";
+import {IERC7579Account, Execution} from "ERC7579/interfaces/IERC7579Account.sol";
+import {ExecutionLib} from "ERC7579/libs/ExecutionLib.sol";
+import {ModeLib, CALLTYPE_DELEGATECALL, EXECTYPE_DEFAULT, MODE_DEFAULT, ModePayload} from "ERC7579/libs/ModeLib.sol";
 
 contract TestExecutor is IExecutor {
     mapping(address => bool) public initialized;

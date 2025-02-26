@@ -2,7 +2,7 @@
 pragma solidity ^0.8.23;
 
 import {Bootstrap, BootstrapConfig} from "../utils/Bootstrap.sol";
-import {IModule} from "../../erc7579-ref-impl/interfaces/IERC7579Module.sol";
+import {IModule} from "ERC7579/interfaces/IERC7579Module.sol";
 
 contract BootstrapUtil {
     Bootstrap bootstrapSingleton;

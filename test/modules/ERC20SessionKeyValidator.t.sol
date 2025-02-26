@@ -2,12 +2,12 @@
 pragma solidity ^0.8.13;
 
 import "forge-std/Test.sol";
+import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
+import {VALIDATION_FAILED} from "ERC7579/interfaces/IERC7579Module.sol";
 import "../../src/modules/validators/ERC20SessionKeyValidator.sol";
 import "../../src/wallet/ModularEtherspotWallet.sol";
 import "../../src/test/TestERC20.sol";
 import "../../src/test/TestUSDC.sol";
-import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
-import {VALIDATION_FAILED} from "../../src/erc7579-ref-impl/interfaces/IERC7579Module.sol";
 import "../TestAdvancedUtils.t.sol";
 import "../../src/utils/ERC4337Utils.sol";
 
