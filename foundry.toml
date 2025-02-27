@@ -6,10 +6,10 @@ bytecodeHash = "none"
 cbor_metadata = false
 solc_version = '0.8.23'
 evm_version = "london"
-deny_warnings = true
 optimizer = true
 runs = 256
 gas_reports = ["*"]
+
 remappings = [
   "@openzeppelin/contracts/=dependencies/@openzeppelin-contracts-5.2.0/",
   "ERC4337/=dependencies/eth-infinitism-account-abstraction-0.7/contracts/",
