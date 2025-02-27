@@ -66,8 +66,7 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         assertEq(retrievedData.validAfter, _validAfter);
         assertEq(retrievedData.validUntil, _validUntil);
         // Get locked token data and validate
-        ICAM.LockedToken[] memory lockedTokens = cam
-            .getLockedTokensForSessionKey(sk.pub);
+        ICAM.LockedToken[] memory lockedTokens = cam.getLockedTokensForSessionKey(sk.pub);
         assertEq(lockedTokens.length, _tokens.length);
         for (uint256 i; i < _tokens.length; ++i) {
             assertEq(lockedTokens[i].token, _tokens[i]);
@@ -77,10 +76,10 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         vm.stopPrank();
     }
 
-    function testFuzz_disableSessionKey(
-        string memory _sessionKey,
-        uint256[3] memory _lockedAmounts
-    ) public withRequiredModules {
+    function testFuzz_disableSessionKey(string memory _sessionKey, uint256[3] memory _lockedAmounts)
+        public
+        withRequiredModules
+    {
         User memory sk = _createUser(_sessionKey);
         for (uint256 i; i < _lockedAmounts.length; ++i) {
             vm.assume(_lockedAmounts[i] > 0 && _lockedAmounts[i] < 1000 ether);
@@ -106,48 +105,17 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         );
         cam.enableSessionKey(rl);
         // Claim tokens to allow disabling
-        bytes memory usdcData = _createTokenTransferFromExecution(
-            address(scw),
-            solver.pub,
-            _lockedAmounts[0]
-        );
+        bytes memory usdcData = _createTokenTransferFromExecution(address(scw), solver.pub, _lockedAmounts[0]);
 
-        bytes memory daiData = _createTokenTransferFromExecution(
-            address(scw),
-            solver.pub,
-            _lockedAmounts[1]
-        );
-        bytes memory usdtData = _createTokenTransferFromExecution(
-            address(scw),
-            solver.pub,
-            _lockedAmounts[2]
-        );
+        bytes memory daiData = _createTokenTransferFromExecution(address(scw), solver.pub, _lockedAmounts[1]);
+        bytes memory usdtData = _createTokenTransferFromExecution(address(scw), solver.pub, _lockedAmounts[2]);
         Execution[] memory batch = new Execution[](3);
-        batch[0] = Execution({
-            target: address(usdc),
-            value: 0,
-            callData: usdcData
-        });
-        batch[1] = Execution({
-            target: address(dai),
-            value: 0,
-            callData: daiData
-        });
-        batch[2] = Execution({
-            target: address(usdt),
-            value: 0,
-            callData: usdtData
-        });
-        bytes memory opCalldata = abi.encodeCall(
-            IERC7579Account.execute,
-            (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch))
-        );
-        (PackedUserOperation memory op, ) = _createUserOpWithSignature(
-            sk,
-            address(scw),
-            address(cam),
-            opCalldata
-        );
+        batch[0] = Execution({target: address(usdc), value: 0, callData: usdcData});
+        batch[1] = Execution({target: address(dai), value: 0, callData: daiData});
+        batch[2] = Execution({target: address(usdt), value: 0, callData: usdtData});
+        bytes memory opCalldata =
+            abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch)));
+        (PackedUserOperation memory op,) = _createUserOpWithSignature(sk, address(scw), address(cam), opCalldata);
         // Execute the user operation
         _executeUserOp(op);
         // Disable the session key
@@ -160,16 +128,15 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         console2.log("sessionKeyData.validUntil", sessionKeyData.validUntil);
         assertEq(sessionKeyData.validUntil, 0);
         // Verify no locked tokens for session key
-        ICAM.LockedToken[] memory lockedTokenData = cam
-            .getLockedTokensForSessionKey(sk.pub);
+        ICAM.LockedToken[] memory lockedTokenData = cam.getLockedTokensForSessionKey(sk.pub);
         assertEq(lockedTokenData.length, 0);
         vm.stopPrank();
     }
 
-    function testFuzz_validateSessionKeyParams(
-        address _sessionKey,
-        bytes calldata _callData
-    ) public withRequiredModules {
+    function testFuzz_validateSessionKeyParams(address _sessionKey, bytes calldata _callData)
+        public
+        withRequiredModules
+    {
         vm.assume(_sessionKey != address(0));
         // Enable a session key first
         _enableSessionKey(address(scw));
@@ -186,9 +153,7 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         vm.stopPrank();
     }
 
-    function testFuzz_claimingTokensBySolver(
-        uint256[3] memory _claimAmounts
-    ) public withRequiredModules {
+    function testFuzz_claimingTokensBySolver(uint256[3] memory _claimAmounts) public withRequiredModules {
         for (uint256 i; i < _claimAmounts.length; ++i) {
             vm.assume(_claimAmounts[i] > 0 && _claimAmounts[i] < 1000 ether);
         }
@@ -213,16 +178,9 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         );
         cam.enableSessionKey(rl);
         // Claim tokens by solver
-        _claimTokensBySolver(
-            eoa,
-            scw,
-            _claimAmounts[0],
-            _claimAmounts[1],
-            _claimAmounts[2]
-        );
+        _claimTokensBySolver(eoa, scw, _claimAmounts[0], _claimAmounts[1], _claimAmounts[2]);
         // Verify tokens have been claimed
-        ICAM.LockedToken[] memory lockedTokens = cam
-            .getLockedTokensForSessionKey(sessionKey.pub);
+        ICAM.LockedToken[] memory lockedTokens = cam.getLockedTokensForSessionKey(sessionKey.pub);
         for (uint256 i; i < 3; ++i) {
             assertEq(lockedTokens[i].claimedAmount, _claimAmounts[i]);
         }

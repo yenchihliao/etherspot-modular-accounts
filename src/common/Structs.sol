@@ -46,7 +46,7 @@ struct TokenData {
     uint256 amount;
 }
 
-// ResourceLockValidator
+// CredibleAccountModule
 struct ResourceLock {
     uint256 chainId;
     address smartWallet;
