@@ -200,17 +200,9 @@ contract ResourceLockValidator is IResourceLockValidator {
                 _lock.sessionKey,
                 _lock.validAfter,
                 _lock.validUntil,
-                _hashTokenData(_lock.tokenData),
+                abi.encode(_lock.tokenData),
                 _lock.nonce
             )
         );
-    }
-
-    /// @notice Creates a hash of token data array
-    /// @dev Efficiently hashes an array of TokenData structs into a single bytes32 value
-    /// @param _data Array of TokenData structs containing token addresses and amounts
-    /// @return bytes32 Hash of the encoded token data array
-    function _hashTokenData(TokenData[] memory _data) internal pure returns (bytes32) {
-        return keccak256(abi.encode(_data));
     }
 }

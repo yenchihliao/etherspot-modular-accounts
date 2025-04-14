@@ -59,14 +59,10 @@ contract ResourceLockValidatorTestUtils is ModularTestBase {
                 _lock.sessionKey,
                 _lock.validAfter,
                 _lock.validUntil,
-                _hashTokenData(_lock.tokenData),
+                abi.encode(_lock.tokenData),
                 _lock.nonce
             )
         );
-    }
-
-    function _hashTokenData(TokenData[] memory _data) internal pure returns (bytes32) {
-        return keccak256(abi.encode(_data));
     }
 
     function _generateResourceLock(address _scw, address _sk) internal view returns (ResourceLock memory) {
