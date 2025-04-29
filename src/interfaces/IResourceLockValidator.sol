@@ -10,4 +10,5 @@ interface IResourceLockValidator is IValidator {
 
     event RLV_ValidatorEnabled(address indexed scw, address indexed owner);
     event RLV_ValidatorDisabled(address indexed scw);
+    event RLV_NonceUpdated(address indexed smartAccount, uint256 newNonce);
 }

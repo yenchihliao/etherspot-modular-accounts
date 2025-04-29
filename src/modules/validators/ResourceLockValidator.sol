@@ -29,6 +29,7 @@ contract ResourceLockValidator is IResourceLockValidator {
     struct ValidatorStorage {
         address owner;
         bool enabled;
+        uint256 nonce;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -88,6 +89,7 @@ contract ResourceLockValidator is IResourceLockValidator {
         }
         // or if signature.length >= 65 (standard signature length + proof packing)
         ResourceLock memory rl = _getResourceLock(userOp.callData);
+        // Nonce validation
         bytes memory ecdsaSignature = signature[0:65];
         bytes32 root = bytes32(signature[65:97]); // 32 bytes
         bytes32[] memory proof = abi.decode(signature[97:], (bytes32[])); // Rest of bytes in signature
@@ -96,6 +98,7 @@ contract ResourceLockValidator is IResourceLockValidator {
         }
         // check proof is signed
         if (walletOwner == ECDSA.recover(root, ecdsaSignature)) {
+            _incrementNonce(msg.sender);
             return SIG_VALIDATION_SUCCESS;
         }
         bytes32 sigRoot = ECDSA.toEthSignedMessageHash(root);
@@ -144,6 +147,10 @@ contract ResourceLockValidator is IResourceLockValidator {
         return _isInitialized(smartAccount);
     }
 
+    function getNonce(address smartAccount) external view returns (uint256) {
+        return validatorStorage[smartAccount].nonce;
+    }
+
     /*//////////////////////////////////////////////////////////////
                       INTERNAL/PRIVATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -174,14 +181,15 @@ contract ResourceLockValidator is IResourceLockValidator {
                 for (uint256 i; i < arrayLength; ++i) {
                     td[i] = _getSingleTokenData(execData, 132 + arrayOffset + (i * 64));
                 }
+                address scw = address(uint160(uint256(bytes32(execData[132:164]))));
                 return ResourceLock({
                     chainId: uint256(bytes32(execData[100:132])),
-                    smartWallet: address(uint160(uint256(bytes32(execData[132:164])))),
+                    smartWallet: scw,
                     sessionKey: address(uint160(uint256(bytes32(execData[164:196])))),
                     validAfter: uint48(uint256(bytes32(execData[196:228]))),
                     validUntil: uint48(uint256(bytes32(execData[228:260]))),
                     tokenData: td,
-                    nonce: uint256(bytes32(execData[292:324]))
+                    nonce: validatorStorage[scw].nonce
                 });
             }
             revert RLV_OnlyCallTypeSingle();
@@ -204,5 +212,13 @@ contract ResourceLockValidator is IResourceLockValidator {
                 _lock.nonce
             )
         );
+    }
+
+    // Internal function to increment nonce
+    function _incrementNonce(address smartAccount) internal returns (uint256) {
+        uint256 newNonce = validatorStorage[smartAccount].nonce + 1;
+        validatorStorage[smartAccount].nonce = newNonce;
+        emit RLV_NonceUpdated(smartAccount, newNonce);
+        return newNonce;
     }
 }
