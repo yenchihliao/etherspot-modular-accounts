@@ -56,8 +56,8 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
                 sessionKey: sk.pub,
                 validAfter: _validAfter,
                 validUntil: _validUntil,
-                tokenData: tokenAmounts,
-                nonce: 2
+                bidHash: DUMMY_BID_HASH,
+                tokenData: tokenAmounts
             })
         );
         cam.enableSessionKey(rl);
@@ -99,8 +99,8 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
                 sessionKey: sk.pub,
                 validAfter: validAfter,
                 validUntil: validUntil,
-                tokenData: tokenAmounts,
-                nonce: 2
+                bidHash: DUMMY_BID_HASH,
+                tokenData: tokenAmounts
             })
         );
         cam.enableSessionKey(rl);
@@ -172,8 +172,8 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
                 sessionKey: sessionKey.pub,
                 validAfter: validAfter,
                 validUntil: validUntil,
-                tokenData: tokenAmounts,
-                nonce: 2
+                bidHash: DUMMY_BID_HASH,
+                tokenData: tokenAmounts
             })
         );
         cam.enableSessionKey(rl);

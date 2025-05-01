@@ -81,8 +81,8 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
             sessionKey: sessionKey.pub,
             validAfter: validAfter,
             validUntil: validUntil,
-            tokenData: td,
-            nonce: 1
+            bidHash: DUMMY_BID_HASH,
+            tokenData: td
         });
         return abi.encode(rl);
     }

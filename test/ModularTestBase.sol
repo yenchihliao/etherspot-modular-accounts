@@ -56,6 +56,7 @@ contract ModularTestBase is BootstrapUtil, Test {
     string internal constant AA22 = "AA22 expired or not due";
     string internal constant AA23 = "AA23 reverted";
     string internal constant AA24 = "AA24 signature error";
+    bytes32 constant DUMMY_BID_HASH = bytes32(0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef);
 
     /*//////////////////////////////////////////////////////////////
                               CONTRACTS
@@ -410,6 +411,14 @@ contract ModularTestBase is BootstrapUtil, Test {
             bytes32 level2Hash = _hashPair(level1Hash, proof[1]);
             root = _hashPair(level2Hash, proof[2]);
         }
+    }
+
+    function _packProofForSignature(bytes32[] memory proof) internal pure returns (bytes memory) {
+        bytes memory result;
+        for (uint256 i; i < proof.length; ++i) {
+            result = bytes.concat(result, abi.encodePacked(proof[i]));
+        }
+        return result;
     }
 
     function _hashPair(bytes32 left, bytes32 right) private pure returns (bytes32 result) {

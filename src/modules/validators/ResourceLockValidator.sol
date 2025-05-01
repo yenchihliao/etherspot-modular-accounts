@@ -29,7 +29,6 @@ contract ResourceLockValidator is IResourceLockValidator {
     struct ValidatorStorage {
         address owner;
         bool enabled;
-        uint256 nonce;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -92,13 +91,26 @@ contract ResourceLockValidator is IResourceLockValidator {
         // Nonce validation
         bytes memory ecdsaSignature = signature[0:65];
         bytes32 root = bytes32(signature[65:97]); // 32 bytes
-        bytes32[] memory proof = abi.decode(signature[97:], (bytes32[])); // Rest of bytes in signature
+        bytes32[] memory proof;
+        if (signature.length > 97) {
+            // Calculate how many proof elements we have
+            uint256 proofCount = (signature.length - 97) / 32;
+            // Create an array of the right size
+            proof = new bytes32[](proofCount);
+            // Extract each proof element
+            for (uint256 i; i < proofCount; ++i) {
+                uint256 startPos = 97 + (i * 32);
+                proof[i] = bytes32(signature[startPos:startPos + 32]);
+            }
+        } else {
+            // Empty proof
+            proof = new bytes32[](0);
+        }
         if (!MerkleProofLib.verify(proof, root, _buildResourceLockHash(rl))) {
             revert RLV_ResourceLockHashNotInProof();
         }
         // check proof is signed
         if (walletOwner == ECDSA.recover(root, ecdsaSignature)) {
-            _incrementNonce(msg.sender);
             return SIG_VALIDATION_SUCCESS;
         }
         bytes32 sigRoot = ECDSA.toEthSignedMessageHash(root);
@@ -125,7 +137,21 @@ contract ResourceLockValidator is IResourceLockValidator {
         }
         bytes memory ecdsaSig = signature[0:65];
         bytes32 root = bytes32(signature[65:97]);
-        bytes32[] memory proof = abi.decode(signature[97:], (bytes32[]));
+        bytes32[] memory proof;
+        if (signature.length > 97) {
+            // Calculate how many proof elements we have
+            uint256 proofCount = (signature.length - 97) / 32;
+            // Create an array of the right size
+            proof = new bytes32[](proofCount);
+            // Extract each proof element
+            for (uint256 i; i < proofCount; ++i) {
+                uint256 startPos = 97 + (i * 32);
+                proof[i] = bytes32(signature[startPos:startPos + 32]);
+            }
+        } else {
+            // Empty proof
+            proof = new bytes32[](0);
+        }
         if (!MerkleProofLib.verify(proof, root, hash)) {
             revert RLV_ResourceLockHashNotInProof();
         }
@@ -147,10 +173,6 @@ contract ResourceLockValidator is IResourceLockValidator {
         return _isInitialized(smartAccount);
     }
 
-    function getNonce(address smartAccount) external view returns (uint256) {
-        return validatorStorage[smartAccount].nonce;
-    }
-
     /*//////////////////////////////////////////////////////////////
                       INTERNAL/PRIVATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -160,7 +182,7 @@ contract ResourceLockValidator is IResourceLockValidator {
     }
 
     function _getArrayInfo(bytes calldata _data) internal pure returns (uint256 offset, uint256 length) {
-        offset = uint256(bytes32(_data[260:292]));
+        offset = uint256(bytes32(_data[292:324]));
         length = uint256(bytes32(_data[100 + offset:132 + offset]));
     }
 
@@ -188,8 +210,8 @@ contract ResourceLockValidator is IResourceLockValidator {
                     sessionKey: address(uint160(uint256(bytes32(execData[164:196])))),
                     validAfter: uint48(uint256(bytes32(execData[196:228]))),
                     validUntil: uint48(uint256(bytes32(execData[228:260]))),
-                    tokenData: td,
-                    nonce: validatorStorage[scw].nonce
+                    bidHash: bytes32(execData[260:292]),
+                    tokenData: td
                 });
             }
             revert RLV_OnlyCallTypeSingle();
@@ -208,17 +230,9 @@ contract ResourceLockValidator is IResourceLockValidator {
                 _lock.sessionKey,
                 _lock.validAfter,
                 _lock.validUntil,
-                abi.encode(_lock.tokenData),
-                _lock.nonce
+                _lock.bidHash,
+                abi.encode(_lock.tokenData)
             )
         );
-    }
-
-    // Internal function to increment nonce
-    function _incrementNonce(address smartAccount) internal returns (uint256) {
-        uint256 newNonce = validatorStorage[smartAccount].nonce + 1;
-        validatorStorage[smartAccount].nonce = newNonce;
-        emit RLV_NonceUpdated(smartAccount, newNonce);
-        return newNonce;
     }
 }

@@ -249,8 +249,8 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
                 sessionKey: address(0),
                 validAfter: validAfter,
                 validUntil: validUntil,
-                tokenData: tokenAmounts,
-                nonce: 2
+                bidHash: DUMMY_BID_HASH,
+                tokenData: tokenAmounts
             })
         );
         // Attempt to enable the session key
@@ -272,8 +272,8 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
                 sessionKey: sessionKey.pub,
                 validAfter: uint48(0),
                 validUntil: validUntil,
-                tokenData: tokenAmounts,
-                nonce: 2
+                bidHash: DUMMY_BID_HASH,
+                tokenData: tokenAmounts
             })
         );
         // Attempt to enable the session key
@@ -296,8 +296,8 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
                 sessionKey: sessionKey.pub,
                 validAfter: validAfter,
                 validUntil: uint48(0),
-                tokenData: tokenAmounts,
-                nonce: 2
+                bidHash: DUMMY_BID_HASH,
+                tokenData: tokenAmounts
             })
         );
         // Attempt to enable the session key
@@ -311,8 +311,8 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
                 sessionKey: sessionKey.pub,
                 validAfter: validAfter,
                 validUntil: validAfter - 1,
-                tokenData: tokenAmounts,
-                nonce: 2
+                bidHash: DUMMY_BID_HASH,
+                tokenData: tokenAmounts
             })
         );
         // Attempt to enable the session key
@@ -441,8 +441,8 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
                 sessionKey: otherSessionKey.pub,
                 validAfter: validAfter,
                 validUntil: validUntil,
-                tokenData: newTokenData,
-                nonce: 2
+                bidHash: DUMMY_BID_HASH,
+                tokenData: newTokenData
             })
         );
         cam.enableSessionKey(rl);
@@ -475,8 +475,8 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
                 sessionKey: otherSessionKey.pub,
                 validAfter: validAfter,
                 validUntil: validUntil,
-                tokenData: newTokenData,
-                nonce: 2
+                bidHash: DUMMY_BID_HASH,
+                tokenData: newTokenData
             })
         );
         cam.enableSessionKey(rl);
@@ -519,8 +519,8 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
                 sessionKey: otherSessionKey.pub,
                 validAfter: validAfter,
                 validUntil: validUntil,
-                tokenData: newTokenData,
-                nonce: 2
+                bidHash: DUMMY_BID_HASH,
+                tokenData: newTokenData
             })
         );
         bytes memory enableSessionKeyData = abi.encodeWithSelector(CAM.enableSessionKey.selector, rl);
@@ -535,8 +535,8 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
                 sessionKey: 0xB071527c3721215A46958d172A42E7E3BDd1DF46,
                 validAfter: uint48(1729743735),
                 validUntil: uint48(1729744025),
-                tokenData: newTokenData2,
-                nonce: 3
+                bidHash: DUMMY_BID_HASH,
+                tokenData: newTokenData2
             })
         );
         // Encode the function call data with the function selector and the encoded session data
@@ -845,8 +845,8 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
                 sessionKey: otherSessionKey.pub,
                 validAfter: validAfter,
                 validUntil: validUntil,
-                tokenData: tokenAmounts,
-                nonce: 2
+                bidHash: DUMMY_BID_HASH,
+                tokenData: tokenAmounts
             })
         );
         harness.enableSessionKey(anotherRl);

@@ -59,8 +59,8 @@ contract ResourceLockValidatorTestUtils is ModularTestBase {
                 _lock.sessionKey,
                 _lock.validAfter,
                 _lock.validUntil,
-                abi.encode(_lock.tokenData),
-                _lock.nonce
+                _lock.bidHash,
+                abi.encode(_lock.tokenData)
             )
         );
     }
@@ -75,8 +75,8 @@ contract ResourceLockValidatorTestUtils is ModularTestBase {
             sessionKey: _sk,
             validAfter: 1732176210,
             validUntil: 1732435407,
-            tokenData: td,
-            nonce: 0
+            bidHash: DUMMY_BID_HASH,
+            tokenData: td
         });
         return rl;
     }
