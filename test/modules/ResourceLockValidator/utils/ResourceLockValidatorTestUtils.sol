@@ -51,6 +51,22 @@ contract ResourceLockValidatorTestUtils is ModularTestBase {
         return (op, rl, proof, root);
     }
 
+    function _createUserOpBatchWithResourceLock(address _scw, User memory _user, bool _validProof)
+        internal
+        view
+        returns (PackedUserOperation memory userOp, ResourceLock memory rl, bytes32[] memory proof, bytes32 root)
+    {
+        PackedUserOperation memory op = _createUserOp(_scw, address(rlv));
+        rl = _generateResourceLock(_scw, _user.pub);
+        (proof, root,) = getTestProof(_buildResourceLockHash(rl), _validProof);
+        bytes memory callData = abi.encodeWithSelector(cam.enableSessionKey.selector, abi.encode(rl));
+        Execution[] memory executions = new Execution[](1);
+        executions[0] = Execution({target: address(cam), value: 0, callData: callData});
+        op.callData =
+            abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(executions)));
+        return (op, rl, proof, root);
+    }
+
     function _buildResourceLockHash(ResourceLock memory _lock) internal pure returns (bytes32) {
         return keccak256(
             abi.encode(

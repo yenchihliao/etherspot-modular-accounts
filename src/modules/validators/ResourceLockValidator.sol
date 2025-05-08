@@ -44,7 +44,8 @@ contract ResourceLockValidator is IResourceLockValidator {
     error RLV_AlreadyInstalled(address scw, address eoa);
     error RLV_NotInstalled(address scw);
     error RLV_ResourceLockHashNotInProof();
-    error RLV_OnlyCallTypeSingle();
+    error RLV_InvalidSelector();
+    error RLV_InvalidCallType();
 
     /*//////////////////////////////////////////////////////////////
                       PUBLIC/EXTERNAL FUNCTIONS
@@ -213,8 +214,39 @@ contract ResourceLockValidator is IResourceLockValidator {
                     bidHash: bytes32(execData[260:292]),
                     tokenData: td
                 });
+            } else if (calltype == CALLTYPE_BATCH) {
+                // NOTE: If batch call then it will should only contain a single UserOperation
+                // so hardcoded values will hold here
+                Execution[] calldata batchExecs = ExecutionLib.decodeBatch(_callData[100:]);
+                for (uint256 i; i < batchExecs.length; ++i) {
+                    if (bytes4(batchExecs[i].callData[:4]) == bytes4(0x495079a0)) {
+                        bytes calldata lockData = batchExecs[i].callData;
+                        uint256 dataOffset = 68; // Skip function selector + 64 bytes
+                        uint256 arrayStart = dataOffset + 256;
+                        uint256 tokenDataLength = uint256(bytes32(lockData[arrayStart:arrayStart + 32]));
+                        TokenData[] memory td = new TokenData[](tokenDataLength);
+                        for (uint256 j; j < tokenDataLength; ++j) {
+                            uint256 tokenEntryStart = arrayStart + 32 + (j * 64);
+                            address token =
+                                address(uint160(uint256(bytes32(lockData[tokenEntryStart:tokenEntryStart + 32]))));
+                            uint256 amount = uint256(bytes32(lockData[tokenEntryStart + 32:tokenEntryStart + 64]));
+                            td[j] = TokenData({token: token, amount: amount});
+                        }
+                        return ResourceLock({
+                            chainId: uint256(bytes32(lockData[dataOffset + 32:dataOffset + 64])),
+                            smartWallet: address(uint160(uint256(bytes32(lockData[dataOffset + 64:dataOffset + 96])))),
+                            sessionKey: address(uint160(uint256(bytes32(lockData[dataOffset + 96:dataOffset + 128])))),
+                            validAfter: uint48(uint256(bytes32(lockData[dataOffset + 128:dataOffset + 160]))),
+                            validUntil: uint48(uint256(bytes32(lockData[dataOffset + 160:dataOffset + 192]))),
+                            bidHash: bytes32(lockData[dataOffset + 192:dataOffset + 224]),
+                            tokenData: td
+                        });
+                    }
+                    revert RLV_InvalidSelector();
+                }
+            } else {
+                revert RLV_InvalidCallType();
             }
-            revert RLV_OnlyCallTypeSingle();
         }
     }
 
@@ -222,6 +254,7 @@ contract ResourceLockValidator is IResourceLockValidator {
     /// @dev Combines chain ID, wallet, session key, validity period, token data, and nonce into a single hash
     /// @param _lock The ResourceLock struct containing all lock parameters
     /// @return bytes32 The unique hash representing this resource lock
+
     function _buildResourceLockHash(ResourceLock memory _lock) internal pure returns (bytes32) {
         return keccak256(
             abi.encode(

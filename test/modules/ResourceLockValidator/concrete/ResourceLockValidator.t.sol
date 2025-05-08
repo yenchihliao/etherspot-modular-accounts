@@ -406,6 +406,18 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         _executeUserOp(op);
     }
 
+    /// @notice Tests batch UserOperation validation with direct merkle signature
+    /// @dev Verifies successful execution of UserOp batch with direct merkle proof signature
+    function test_validateUserOp_Batch_DirectMerkleSignature() public withRequiredModules {
+        // Create UserOp with ResourceLock
+        (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
+            _createUserOpBatchWithResourceLock(address(scw), sessionKey, true);
+        // Sign merkle root directly
+        bytes memory sig = _sign(merkleRoot, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
+        _executeUserOp(op);
+    }
+
     /// @notice Tests UserOperation validation with large TokenData array using direct merkle signature
     /// @dev Verifies successful handling of ResourceLock containing 10 token configurations
     function test_validateUserOp_DirectMerkleSignature_LargeTokenData() public withRequiredModules {
@@ -479,6 +491,18 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         // Create UserOp with ResourceLock
         (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
             _createUserOpWithResourceLock(address(scw), sessionKey, true);
+        // Sign merkle root directly
+        bytes memory sig = _ethSign(merkleRoot, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
+        _executeUserOp(op);
+    }
+
+    /// @notice Tests UserOperation batch validation with eth-signed merkle signature
+    /// @dev Verifies successful execution of UserOp batch with eth-signed merkle proof
+    function test_validateUserOp_Batch_EthSignedMerkleSignature() public withRequiredModules {
+        // Create UserOp with ResourceLock
+        (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
+            _createUserOpBatchWithResourceLock(address(scw), sessionKey, true);
         // Sign merkle root directly
         bytes memory sig = _ethSign(merkleRoot, eoa);
         op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));

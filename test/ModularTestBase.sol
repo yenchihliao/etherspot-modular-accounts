@@ -144,7 +144,7 @@ contract ModularTestBase is BootstrapUtil, Test {
         skv = new SessionKeyValidator();
         erc1155fb = new ERC1155FallbackHandler();
         pv = new ProofVerifier();
-        hmp = new HookMultiPlexer(mockReg);
+        hmp = new HookMultiPlexer();
         cam = new CredibleAccountModule(address(pv), address(hmp));
         rlv = new ResourceLockValidator();
         vm.label({account: address(impl), newLabel: "ModularEtherspotWallet"});
