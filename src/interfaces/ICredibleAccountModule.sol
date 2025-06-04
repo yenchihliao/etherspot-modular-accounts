@@ -41,34 +41,22 @@ interface ICredibleAccountModule is IValidator, IHook {
     /// @notice Emitted when a new session key is enabled for a wallet.
     /// @param sessionKey The address of the session key.
     /// @param wallet The address of the wallet for which the session key is enabled.
-    event CredibleAccountModule_SessionKeyEnabled(
-        address indexed sessionKey,
-        address indexed wallet
-    );
+    event CredibleAccountModule_SessionKeyEnabled(address indexed sessionKey, address indexed wallet);
 
     /// @notice Emitted when a session key is disabled for a wallet.
     /// @param sessionKey The address of the session key.
     /// @param wallet The address of the wallet for which the session key is disabled.
-    event CredibleAccountModule_SessionKeyDisabled(
-        address sessionKey,
-        address wallet
-    );
+    event CredibleAccountModule_SessionKeyDisabled(address sessionKey, address wallet);
 
     /// @notice Emitted when a session key is paused for a wallet.
     /// @param sessionKey The address of the session key.
     /// @param wallet The address of the wallet for which the session key is paused.
-    event CredibleAccountModule_SessionKeyPaused(
-        address sessionKey,
-        address wallet
-    );
+    event CredibleAccountModule_SessionKeyPaused(address sessionKey, address wallet);
 
     /// @notice Emitted when a session key is unpaused for a wallet.
     /// @param sessionKey The address of the session key.
     /// @param wallet The address of the wallet for which the session key is unpaused.
-    event CredibleAccountModule_SessionKeyUnpaused(
-        address sessionKey,
-        address wallet
-    );
+    event CredibleAccountModule_SessionKeyUnpaused(address sessionKey, address wallet);
 
     /*//////////////////////////////////////////////////////////////
                               FUNCTIONS
@@ -86,51 +74,36 @@ interface ICredibleAccountModule is IValidator, IHook {
     /// @param _sessionKey The address of the session key.
     /// @param userOp The packed user operation containing the call data.
     /// @return True if the session key parameters are valid for the user operation, false otherwise.
-    function validateSessionKeyParams(
-        address _sessionKey,
-        PackedUserOperation calldata userOp
-    ) external returns (bool);
+    function validateSessionKeyParams(address _sessionKey, PackedUserOperation calldata userOp)
+        external
+        returns (bool);
 
     /// @notice Returns the list of associated session keys for the caller's wallet.
     /// @return keys The array of associated session key addresses.
-    function getSessionKeysByWallet()
-        external
-        view
-        returns (address[] memory keys);
+    function getSessionKeysByWallet() external view returns (address[] memory keys);
 
     /// @notice Returns the list of associated session keys for the provided wallet.
     /// @return keys The array of associated session key addresses.
-    function getSessionKeysByWallet(
-        address _wallet
-    ) external view returns (address[] memory keys);
+    function getSessionKeysByWallet(address _wallet) external view returns (address[] memory keys);
 
     /// @notice Returns the session data for a given session key and the caller's wallet.
     /// @param _sessionKey The address of the session key.
     /// @return data The session data struct.
-    function getSessionKeyData(
-        address _sessionKey
-    ) external view returns (SessionData memory data);
+    function getSessionKeyData(address _sessionKey) external view returns (SessionData memory data);
 
     /// @notice Retrieves all locked tokens for a specific session key
     /// @param _sessionKey The address of the session key to query
     /// @return An array of LockedToken structs associated with the given session key
-    function getLockedTokensForSessionKey(
-        address _sessionKey
-    ) external view returns (LockedToken[] memory);
+    function getLockedTokensForSessionKey(address _sessionKey) external view returns (LockedToken[] memory);
 
     /// @notice Retrieves the total locked amount for a specific token across all session keys for the calling wallet
     /// @param _token The address of the token to check
     /// @return The total locked amount of the specified token
-    function tokenTotalLockedForWallet(
-        address _token
-    ) external view returns (uint256);
+    function tokenTotalLockedForWallet(address _token) external returns (uint256);
 
     /// @notice Retrieves the cumulative locked amounts for all unique tokens across all session keys for the calling wallet
     /// @return An array of TokenData structures containing token addresses and their corresponding locked amounts
-    function cumulativeLockedForWallet()
-        external
-        view
-        returns (TokenData[] memory);
+    function cumulativeLockedForWallet() external returns (TokenData[] memory);
 
     /// @notice Checks if all tokens for a given session key have been claimed
     /// @dev Iterates through all locked tokens for the session key
@@ -142,10 +115,9 @@ interface ICredibleAccountModule is IValidator, IHook {
     /// @param userOp The packed user operation.
     /// @param userOpHash The hash of the user operation.
     /// @return validationData The validation data containing the expiration time and valid after timestamp of the session key.
-    function validateUserOp(
-        PackedUserOperation calldata userOp,
-        bytes32 userOpHash
-    ) external returns (uint256 validationData);
+    function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash)
+        external
+        returns (uint256 validationData);
 
     /// @notice Checks if the module type matches the validator module type.
     /// @param moduleTypeId The module type ID to check.
@@ -165,11 +137,10 @@ interface ICredibleAccountModule is IValidator, IHook {
     /// @param hash The hash of the message.
     /// @param data The data associated with the message.
     /// @return A bytes4 value indicating the function is not implemented.
-    function isValidSignatureWithSender(
-        address sender,
-        bytes32 hash,
-        bytes calldata data
-    ) external view returns (bytes4);
+    function isValidSignatureWithSender(address sender, bytes32 hash, bytes calldata data)
+        external
+        view
+        returns (bytes4);
 
     /// @notice Reverts with a "NotImplemented" error.
     /// @param smartAccount The address of the smart account.
@@ -182,11 +153,9 @@ interface ICredibleAccountModule is IValidator, IHook {
     /// @param msgValue The amount of Ether sent with the transaction
     /// @param msgData The calldata of the transaction
     /// @return hookData Encoded data to be used in post-execution checks
-    function preCheck(
-        address msgSender,
-        uint256 msgValue,
-        bytes calldata msgData
-    ) external returns (bytes memory hookData);
+    function preCheck(address msgSender, uint256 msgValue, bytes calldata msgData)
+        external
+        returns (bytes memory hookData);
 
     /// @notice Performs post-execution checks using the hook data
     /// @dev This function is called after the main execution
