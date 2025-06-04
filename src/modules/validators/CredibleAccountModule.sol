@@ -96,12 +96,8 @@ contract CredibleAccountModule is ICredibleAccountModule {
         if (rl.validUntil == 0 || rl.validUntil <= rl.validAfter) {
             revert CredibleAccountModule_InvalidValidUntil(rl.validUntil);
         }
-        sessionData[rl.sessionKey][msg.sender] = SessionData({
-            sessionKey: rl.sessionKey,
-            validAfter: rl.validAfter,
-            validUntil: rl.validUntil,
-            live: true // unused
-        });
+        sessionData[rl.sessionKey][msg.sender] =
+            SessionData({sessionKey: rl.sessionKey, validAfter: rl.validAfter, validUntil: rl.validUntil, live: true});
         for (uint256 i; i < rl.tokenData.length; ++i) {
             lockedTokens[rl.sessionKey].push(
                 LockedToken({token: rl.tokenData[i].token, lockedAmount: rl.tokenData[i].amount, claimedAmount: 0})
@@ -173,12 +169,12 @@ contract CredibleAccountModule is ICredibleAccountModule {
     }
 
     // @inheritdoc ICredibleAccountModule
-    function tokenTotalLockedForWallet(address _token) external view returns (uint256) {
+    function tokenTotalLockedForWallet(address _token) external returns (uint256) {
         return _retrieveLockedBalance(msg.sender, _token);
     }
 
     // @inheritdoc ICredibleAccountModule
-    function cumulativeLockedForWallet() external view returns (TokenData[] memory) {
+    function cumulativeLockedForWallet() external returns (TokenData[] memory) {
         return _cumulativeLockedForWallet(msg.sender);
     }
 
@@ -243,7 +239,6 @@ contract CredibleAccountModule is ICredibleAccountModule {
 
     // @inheritdoc ICredibleAccountModule
     function onUninstall(bytes calldata data) external override {
-        console2.log("CAM: onUninstall!");
         if (data.length < 32) {
             revert CredibleAccountModule_InvalidOnUnInstallData(msg.sender);
         }
@@ -361,6 +356,23 @@ contract CredibleAccountModule is ICredibleAccountModule {
         return false;
     }
 
+    /// @notice Checks if a session key has expired for a specific wallet
+    /// @dev This function also updates the 'live' status of a session key if it has expired
+    /// @param _sessionKey The address of the session key to check
+    /// @param _wallet The address of the wallet associated with the session key
+    /// @return bool Returns true if the session key is expired or not live, false otherwise
+    function _isSessionKeyExpired(address _sessionKey, address _wallet) internal returns (bool) {
+        SessionData storage sd = sessionData[_sessionKey][_wallet];
+        if (!sd.live) {
+            return true;
+        } else if (sd.validUntil < block.timestamp && sd.live) {
+            sd.live = false;
+            return true;
+        } else {
+            return false;
+        }
+    }
+
     /// @notice Extracts and decodes relevant information from ERC20 function call data
     /// @dev Supports transferFrom function of ERC20 tokens
     /// @param _data The calldata of the ERC20 function call
@@ -438,25 +450,28 @@ contract CredibleAccountModule is ICredibleAccountModule {
                             HOOK INTERNAL
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Retrieves the total locked balance for a specific token across all session keys
+    /// @notice Retrieves the total locked balance for a specific token across all non-expired session keys
     /// @dev Iterates through all session keys and their locked tokens to calculate the total locked balance
     /// @param _wallet The address of the wallet to check the locked balance for
     /// @param _token The address of the token to check the locked balance for
     /// @return The total locked balance of the specified token across all session keys
-    function _retrieveLockedBalance(address _wallet, address _token) internal view returns (uint256) {
+    function _retrieveLockedBalance(address _wallet, address _token) internal returns (uint256) {
         address[] memory sessionKeys = getSessionKeysByWallet(_wallet);
         uint256 totalLocked;
         uint256 sessionKeysLength = sessionKeys.length;
         for (uint256 i; i < sessionKeysLength;) {
-            LockedToken[] memory tokens = lockedTokens[sessionKeys[i]];
-            uint256 tokensLength = tokens.length;
-            for (uint256 j; j < tokensLength;) {
-                LockedToken memory lockedToken = tokens[j];
-                if (lockedToken.token == _token) {
-                    totalLocked += (lockedToken.lockedAmount - lockedToken.claimedAmount);
-                }
-                unchecked {
-                    ++j;
+            // Skip expired session keys
+            if (!_isSessionKeyExpired(sessionKeys[i], _wallet)) {
+                LockedToken[] memory tokens = lockedTokens[sessionKeys[i]];
+                uint256 tokensLength = tokens.length;
+                for (uint256 j; j < tokensLength;) {
+                    LockedToken memory lockedToken = tokens[j];
+                    if (lockedToken.token == _token) {
+                        totalLocked += (lockedToken.lockedAmount - lockedToken.claimedAmount);
+                    }
+                    unchecked {
+                        ++j;
+                    }
                 }
             }
             unchecked {
@@ -466,33 +481,36 @@ contract CredibleAccountModule is ICredibleAccountModule {
         return totalLocked;
     }
 
-    /// @notice Gets the cumulative locked state of all tokens across all session keys
+    /// @notice Gets the cumulative locked state of all tokens across all non-expired session keys
     /// @dev Aggregates locked token balances for all session keys, combining balances for the same token
     /// @return Array of TokenData structures representing the initial locked state
-    function _cumulativeLockedForWallet(address _wallet) internal view returns (TokenData[] memory) {
+    function _cumulativeLockedForWallet(address _wallet) internal returns (TokenData[] memory) {
         address[] memory sessionKeys = getSessionKeysByWallet(_wallet);
         TokenData[] memory tokenData = new TokenData[](0);
         uint256 unique;
         for (uint256 i; i < sessionKeys.length; ++i) {
-            LockedToken[] memory locks = lockedTokens[sessionKeys[i]];
-            for (uint256 j; j < locks.length; ++j) {
-                address token = locks[j].token;
-                bool found = false;
-                for (uint256 k; k < unique; ++k) {
-                    if (tokenData[k].token == token) {
-                        found = true;
-                        break;
+            // Skip expired session keys
+            if (!_isSessionKeyExpired(sessionKeys[i], _wallet)) {
+                LockedToken[] memory locks = lockedTokens[sessionKeys[i]];
+                for (uint256 j; j < locks.length; ++j) {
+                    address token = locks[j].token;
+                    bool found = false;
+                    for (uint256 k; k < unique; ++k) {
+                        if (tokenData[k].token == token) {
+                            found = true;
+                            break;
+                        }
                     }
-                }
-                if (!found) {
-                    TokenData[] memory newTokenData = new TokenData[](unique + 1);
-                    for (uint256 m; m < unique; ++m) {
-                        newTokenData[m] = tokenData[m];
+                    if (!found) {
+                        TokenData[] memory newTokenData = new TokenData[](unique + 1);
+                        for (uint256 m; m < unique; ++m) {
+                            newTokenData[m] = tokenData[m];
+                        }
+                        uint256 totalLocked = _retrieveLockedBalance(_wallet, token);
+                        newTokenData[unique] = TokenData(token, totalLocked);
+                        tokenData = newTokenData;
+                        unique++;
                     }
-                    uint256 totalLocked = _retrieveLockedBalance(_wallet, token);
-                    newTokenData[unique] = TokenData(token, totalLocked);
-                    tokenData = newTokenData;
-                    unique++;
                 }
             }
         }
