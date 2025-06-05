@@ -6,7 +6,6 @@ import {console2} from "forge-std/console2.sol";
 import {HookMultiPlexer} from "../src/modules/hooks/HookMultiPlexer.sol";
 import {CredibleAccountModule} from "../src/modules/validators/CredibleAccountModule.sol";
 import {ResourceLockValidator} from "../src/modules/validators/ResourceLockValidator.sol";
-import {ProofVerifier} from "../src/utils/ProofVerifier.sol";
 
 contract CredibleAccountSetupScript is Script {
     bytes32 public immutable SALT = bytes32(abi.encodePacked("ModularEtherspotWallet:Create2:salt"));
@@ -19,7 +18,6 @@ contract CredibleAccountSetupScript is Script {
         HookMultiPlexer hookMultiPlexer;
         CredibleAccountModule credibleAccountModule;
         ResourceLockValidator resourceLockValidator;
-        ProofVerifier proofVerifier;
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         vm.startBroadcast(deployerPrivateKey);
 
@@ -46,20 +44,12 @@ contract CredibleAccountSetupScript is Script {
         // }
 
         /*//////////////////////////////////////////////////////////////
-                            Deploy ProofVerifier
-        //////////////////////////////////////////////////////////////*/
-
-        console2.log("Deploying ProofVerifier...");
-        proofVerifier = new ProofVerifier();
-        console2.log("ProofVerifier deployed at address", address(proofVerifier));
-
-        /*//////////////////////////////////////////////////////////////
                       Deploy CredibleAccountModule
         //////////////////////////////////////////////////////////////*/
 
         console2.log("Deploying CredibleAccountModule...");
         // if (EXPECTED_CA_MODULE_ADDRESS.code.length == 0) {
-        credibleAccountModule = new CredibleAccountModule(address(proofVerifier), address(hookMultiPlexer));
+        credibleAccountModule = new CredibleAccountModule(address(hookMultiPlexer));
         // if (address(credibleAccountModule) != EXPECTED_CA_MODULE_ADDRESS) {
         //     revert("Unexpected CredibleAccountModule address!!!");
         // } else {

@@ -105,10 +105,10 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         );
         cam.enableSessionKey(rl);
         // Claim tokens to allow disabling
-        bytes memory usdcData = _createTokenTransferFromExecution(address(scw), solver.pub, _lockedAmounts[0]);
+        bytes memory usdcData = _createTokenTransferExecution(solver.pub, _lockedAmounts[0]);
 
-        bytes memory daiData = _createTokenTransferFromExecution(address(scw), solver.pub, _lockedAmounts[1]);
-        bytes memory usdtData = _createTokenTransferFromExecution(address(scw), solver.pub, _lockedAmounts[2]);
+        bytes memory daiData = _createTokenTransferExecution(solver.pub, _lockedAmounts[1]);
+        bytes memory usdtData = _createTokenTransferExecution(solver.pub, _lockedAmounts[2]);
         Execution[] memory batch = new Execution[](3);
         batch[0] = Execution({target: address(usdc), value: 0, callData: usdcData});
         batch[1] = Execution({target: address(dai), value: 0, callData: daiData});

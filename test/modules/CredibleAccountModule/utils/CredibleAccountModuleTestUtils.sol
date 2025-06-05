@@ -55,18 +55,15 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
         _testInit();
         solver = _createUser("Solver");
         otherSessionKey = _createUser("Other Session Key");
-        harness = new CredibleAccountModuleHarness(address(pv), address(hmp));
+        harness = new CredibleAccountModuleHarness(address(hmp));
         vm.startPrank(address(scw));
         // Set up test variables
         tokens = [address(usdc), address(dai), address(usdt)];
         amounts = [100e6, 200e18, 300e18];
         // Mint and approve tokens
         usdc.mint(address(scw), amounts[0]);
-        usdc.approve(address(scw), amounts[0]);
         dai.mint(address(scw), amounts[1]);
-        dai.approve(address(scw), amounts[1]);
         usdt.mint(address(scw), amounts[2]);
-        usdt.approve(address(scw), amounts[2]);
         vm.stopPrank();
     }
 
@@ -129,9 +126,9 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
         uint256 _dai,
         uint256 _usdt
     ) internal {
-        bytes memory usdcData = _createTokenTransferFromExecution(address(_scw), solver.pub, _usdc);
-        bytes memory daiData = _createTokenTransferFromExecution(address(_scw), solver.pub, _dai);
-        bytes memory usdtData = _createTokenTransferFromExecution(address(_scw), solver.pub, _usdt);
+        bytes memory usdcData = _createTokenTransferExecution(solver.pub, _usdc);
+        bytes memory daiData = _createTokenTransferExecution(solver.pub, _dai);
+        bytes memory usdtData = _createTokenTransferExecution(solver.pub, _usdt);
         Execution[] memory batch = new Execution[](3);
         batch[0] = Execution({target: address(usdc), value: 0, callData: usdcData});
         batch[1] = Execution({target: address(dai), value: 0, callData: daiData});

@@ -27,7 +27,6 @@ import {MultipleOwnerECDSAValidator} from "../src/modules/validators/MultipleOwn
 import {ERC20SessionKeyValidator} from "../src/modules/validators/ERC20SessionKeyValidator.sol";
 import {SessionKeyValidator} from "../src/modules/validators/SessionKeyValidator.sol";
 import {ERC1155FallbackHandler} from "../src/modules/fallbacks/ERC1155FallbackHandler.sol";
-import {ProofVerifier} from "../src/utils/ProofVerifier.sol";
 import {CredibleAccountModule} from "../src/modules/validators/CredibleAccountModule.sol";
 import {HookMultiPlexer} from "../src/modules/hooks/HookMultiPlexer.sol";
 import {ResourceLockValidator} from "../src/modules/validators/ResourceLockValidator.sol";
@@ -70,7 +69,6 @@ contract ModularTestBase is BootstrapUtil, Test {
     ERC20SessionKeyValidator internal erc20skv;
     SessionKeyValidator internal skv;
     ResourceLockValidator internal rlv;
-    ProofVerifier internal pv;
     CredibleAccountModule internal cam;
     HookMultiPlexer internal hmp;
     ERC1155FallbackHandler internal erc1155fb;
@@ -96,6 +94,7 @@ contract ModularTestBase is BootstrapUtil, Test {
     User internal alice;
     User internal bob;
     User internal beneficiary;
+    User internal deployer;
     User internal eoa;
     User internal guardian1;
     User internal guardian2;
@@ -121,6 +120,9 @@ contract ModularTestBase is BootstrapUtil, Test {
     function _testInit() internal {
         // Setup EntryPoint
         etchEntrypoint();
+        // Create Deployer
+        deployer = _createDeployer();
+        vm.startPrank(deployer.pub);
         // Mocks
         mockVal = new MockValidator();
         mockExec = new MockExecutor();
@@ -143,9 +145,8 @@ contract ModularTestBase is BootstrapUtil, Test {
         erc20skv = new ERC20SessionKeyValidator();
         skv = new SessionKeyValidator();
         erc1155fb = new ERC1155FallbackHandler();
-        pv = new ProofVerifier();
         hmp = new HookMultiPlexer();
-        cam = new CredibleAccountModule(address(pv), address(hmp));
+        cam = new CredibleAccountModule(address(hmp));
         rlv = new ResourceLockValidator();
         vm.label({account: address(impl), newLabel: "ModularEtherspotWallet"});
         vm.label({account: address(factory), newLabel: "ModularEtherspotWalletFactory"});
@@ -153,7 +154,6 @@ contract ModularTestBase is BootstrapUtil, Test {
         vm.label({account: address(erc20skv), newLabel: "ERC20SessionKeyValidator"});
         vm.label({account: address(skv), newLabel: "SessionKeyValidator"});
         vm.label({account: address(erc1155fb), newLabel: "ERC1155FallbackHandler"});
-        vm.label({account: address(pv), newLabel: "ProofVerifier"});
         vm.label({account: address(hmp), newLabel: "HookMultiPlexer"});
         vm.label({account: address(cam), newLabel: "CredibleAccountModule"});
         vm.label({account: address(rlv), newLabel: "ResourceLockValidator"});
@@ -182,8 +182,11 @@ contract ModularTestBase is BootstrapUtil, Test {
         malicious = _createUser("Malicious EOA");
         sessionKey = _createUser("Session Key");
         zero = User({pub: payable(address(0)), priv: 0});
+        _fund(deployer, address(dai), 100e18);
+        _fund(deployer, address(usdt), 100e18);
         // SCW
         scw = _createSCW(eoa.pub);
+        vm.stopPrank();
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -199,6 +202,14 @@ contract ModularTestBase is BootstrapUtil, Test {
         vm.label(addr, name);
     }
 
+    function _createDeployer() internal returns (User memory) {
+        (address payable addr, uint256 key) = _makePayableAddrAndKey("Deployer Account");
+        User memory user = User({pub: addr, priv: key});
+        vm.label({account: addr, newLabel: "Deployer Account"});
+        vm.deal({account: addr, newBalance: 100 ether});
+        return user;
+    }
+
     function _createUser(string memory _name) internal returns (User memory) {
         (address payable addr, uint256 key) = _makePayableAddrAndKey(_name);
         User memory user = User({pub: addr, priv: key});
@@ -207,6 +218,10 @@ contract ModularTestBase is BootstrapUtil, Test {
         deal({token: address(dai), to: addr, give: 100e18});
         deal({token: address(usdt), to: addr, give: 100e18});
         return user;
+    }
+
+    function _fund(User memory _user, address _token, uint256 _amount) internal {
+        deal({token: _token, to: _user.pub, give: _amount});
     }
 
     function _toRevert(bytes4 _selector, bytes memory _params) internal {

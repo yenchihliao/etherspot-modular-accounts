@@ -11,13 +11,8 @@ import "../common/Structs.sol";
 /// @notice This interface defines the functions and events of the CredibleAccountModule contract.
 interface ICredibleAccountModule is IValidator, IHook {
     /*//////////////////////////////////////////////////////////////
-                            STRUCTS/ENUMS
+                               STRUCTS
     //////////////////////////////////////////////////////////////*/
-
-    struct Initialization {
-        bool validatorInitialized;
-        bool hookInitialized;
-    }
 
     /// @notice Struct representing the data associated with a session key.
     struct LockedToken {
@@ -58,9 +53,36 @@ interface ICredibleAccountModule is IValidator, IHook {
     /// @param wallet The address of the wallet for which the session key is unpaused.
     event CredibleAccountModule_SessionKeyUnpaused(address sessionKey, address wallet);
 
+    /// @notice Emitted when aan address is granted role of SESSION_KEY_DISABLER.
+    /// @param account The address of the account granted the role.
+    /// @param admin The address of the admin granting the role.
+    event SessionKeyDisablerRoleGranted(address indexed account, address indexed admin);
+
+    /// @notice Emitted when aan address is revoked role of SESSION_KEY_DISABLER.
+    /// @param account The address of the account revoked the role.
+    /// @param admin The address of the admin revoking the role.
+    event SessionKeyDisablerRoleRevoked(address indexed account, address indexed admin);
+
     /*//////////////////////////////////////////////////////////////
                               FUNCTIONS
     //////////////////////////////////////////////////////////////*/
+
+    /// @notice Grants the SESSION_KEY_DISABLER role to an account.
+    /// @param account The address of the account to grant the role to.
+    function grantSessionKeyDisablerRole(address account) external;
+
+    /// @notice Revokes the SESSION_KEY_DISABLER role from an account.
+    /// @param account The address of the account to revoke the role from.
+    function revokeSessionKeyDisablerRole(address account) external;
+
+    /// @notice Checks if an account has the SESSION_KEY_DISABLER role.
+    /// @param account The address of the account to check.
+    /// @return True if the account has the SESSION_KEY_DISABLER role, false otherwise.
+    function hasSessionKeyDisablerRole(address account) external view returns (bool);
+
+    /// @notice Returns the addresses of accounts with the SESSION_KEY_DISABLER role.
+    /// @return addresses The addresses of accounts with the SESSION_KEY_DISABLER role.
+    function getSessionKeyDisablers() external view returns (address[] memory addresses);
 
     /// @notice Enables a new session key for the caller's wallet.
     /// @param _sessionData The encoded session data containing the session key address, token address, interface ID, function selector, spending limit, valid after timestamp, and valid until timestamp.
@@ -69,6 +91,20 @@ interface ICredibleAccountModule is IValidator, IHook {
     /// @notice Disables a session key for the caller's wallet.
     /// @param _session The address of the session key to disable.
     function disableSessionKey(address _session) external;
+
+    /// @notice Disables multiple session keys in a single transaction if they are expired or fully claimed
+    /// @dev Only callable by accounts with SESSION_KEY_DISABLER role
+    /// @dev Skips non-existent session keys instead of reverting to allow partial batch processing
+    /// @dev Session keys are removed if expired (past validUntil) or all tokens have been claimed
+    /// @param _sessionKeys Array of session key addresses to potentially disable
+    function batchDisableSessionKeys(address[] calldata _sessionKeys) external;
+
+    /// @notice Emergency function to forcibly disable a session key regardless of its status
+    /// @dev Only callable by accounts with DEFAULT_ADMIN_ROLE for emergency situations
+    /// @dev Reverts if the session key does not exist, unlike batchDisableSessionKeys
+    /// @dev Should be used sparingly for security incidents or urgent situations
+    /// @param _sessionKey The session key address to forcibly disable
+    function emergencyDisableSessionKey(address _sessionKey) external;
 
     /// @notice Validates the parameters of a session key for a given user operation.
     /// @param _sessionKey The address of the session key.
@@ -104,6 +140,16 @@ interface ICredibleAccountModule is IValidator, IHook {
     /// @notice Retrieves the cumulative locked amounts for all unique tokens across all session keys for the calling wallet
     /// @return An array of TokenData structures containing token addresses and their corresponding locked amounts
     function cumulativeLockedForWallet() external returns (TokenData[] memory);
+
+    /// @notice Retrieves the list of live session keys for the specified wallet
+    /// @param _wallet The address of the wallet to query
+    /// @return An array of live session key addresses
+    function getLiveSessionKeysForWallet(address _wallet) external returns (address[] memory);
+
+    /// @notice Retrieves the list of expire session keys for the specified wallet
+    /// @param _wallet The address of the wallet to query
+    /// @return An array of expired session key addresses
+    function getExpiredSessionKeysForWallet(address _wallet) external returns (address[] memory);
 
     /// @notice Checks if all tokens for a given session key have been claimed
     /// @dev Iterates through all locked tokens for the session key

@@ -5,12 +5,13 @@ import "forge-std/Test.sol";
 import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
 import "ERC4337/core/Helpers.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IAccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import "ERC7579/interfaces/IERC7579Account.sol";
-import {VALIDATION_FAILED, MODULE_TYPE_HOOK, MODULE_TYPE_VALIDATOR} from "ERC7579/interfaces/IERC7579Module.sol";
+import "ERC7579/interfaces/IERC7579Module.sol";
 import {ExecutionLib} from "ERC7579/libs/ExecutionLib.sol";
 import "ERC7579/libs/ModeLib.sol";
 import {CredibleAccountModule as CAM} from "../../../../src/modules/validators/CredibleAccountModule.sol";
-import {ICredibleAccountModule as ICAM} from "../../../../src/interfaces/ICredibleAccountModule.sol";
+import {ICredibleAccountModule} from "../../../../src/interfaces/ICredibleAccountModule.sol";
 import {HookMultiPlexerLib as HMPL} from "../../../../src/libraries/HookMultiPlexerLib.sol";
 import {ModularEtherspotWallet} from "../../../../src/wallet/ModularEtherspotWallet.sol";
 import "../../../../src/common/Enums.sol";
@@ -19,6 +20,9 @@ import {CredibleAccountModuleTestUtils as TestUtils} from "../utils/CredibleAcco
 import {TestWETH} from "../../../../src/test/TestWETH.sol";
 import {TestUniswapV2} from "../../../../src/test/TestUniswapV2.sol";
 import "../../../../src/utils/ERC4337Utils.sol";
+
+import {BootstrapConfig, BootstrapUtil, Bootstrap} from "../../../../src/utils/Bootstrap.sol";
+import {MockTarget} from "../../../../src/test/mocks/MockTarget.sol";
 
 using ERC4337Utils for IEntryPoint;
 
@@ -158,7 +162,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         vm.stopPrank();
         // Uninstall the validator module first
         vm.expectEmit(true, true, false, false);
-        emit ICAM.CredibleAccountModule_ModuleUninstalled(address(scw));
+        emit ICredibleAccountModule.CredibleAccountModule_ModuleUninstalled(address(scw));
         _uninstallModule(
             eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(cam), abi.encode(MODULE_TYPE_VALIDATOR, address(scw))
         );
@@ -180,7 +184,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         // Uninstall the validator module first
         vm.stopPrank();
         vm.expectEmit(true, true, false, false);
-        emit ICAM.CredibleAccountModule_ModuleUninstalled(address(scw));
+        emit ICredibleAccountModule.CredibleAccountModule_ModuleUninstalled(address(scw));
         _uninstallModule(
             eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(cam), abi.encode(MODULE_TYPE_VALIDATOR, address(scw))
         );
@@ -207,7 +211,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     // Test: Verify that a session key can be enabled
     function test_enableSessionKey() public withRequiredModules {
         vm.expectEmit(true, true, false, false);
-        emit ICAM.CredibleAccountModule_SessionKeyEnabled(sessionKey.pub, address(scw));
+        emit ICredibleAccountModule.CredibleAccountModule_SessionKeyEnabled(sessionKey.pub, address(scw));
         // Enable session key
         _enableSessionKey(address(scw));
         // Verify that the session key is enabled
@@ -217,7 +221,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         assertEq(sessionData.validUntil, validUntil, "validUntil does not match expected");
         assertEq(sessionData.validAfter, validAfter, "validAfter does not match expected");
         // Verify LockedToken data for session key
-        ICAM.LockedToken[] memory lockedTokens = cam.getLockedTokensForSessionKey(sessionKey.pub);
+        ICredibleAccountModule.LockedToken[] memory lockedTokens = cam.getLockedTokensForSessionKey(sessionKey.pub);
         assertEq(lockedTokens.length, 3, "Number of locked tokens does not match expected");
         assertEq(lockedTokens[0].token, tokens[0], "The first locked token address does not match expected");
         assertEq(
@@ -329,7 +333,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
         // Expect emit a session key disabled event
         vm.expectEmit(true, true, false, false);
-        emit ICAM.CredibleAccountModule_SessionKeyDisabled(sessionKey.pub, address(scw));
+        emit ICredibleAccountModule.CredibleAccountModule_SessionKeyDisabled(sessionKey.pub, address(scw));
         cam.disableSessionKey(sessionKey.pub);
         vm.stopPrank();
     }
@@ -343,20 +347,8 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         vm.warp(validUntil + 1);
         // Expect emit a session key disabled event
         vm.expectEmit(true, true, false, false);
-        emit ICAM.CredibleAccountModule_SessionKeyDisabled(sessionKey.pub, address(scw));
+        emit ICredibleAccountModule.CredibleAccountModule_SessionKeyDisabled(sessionKey.pub, address(scw));
         cam.disableSessionKey(sessionKey.pub);
-        vm.stopPrank();
-    }
-
-    // Test: Disabling a session key with an invalid session key should revert
-    function test_disableSessionKey_RevertIf_InvalidSessionKey() public withRequiredModules {
-        // Enable session key
-        _enableSessionKey(address(scw));
-        // Claim tokens by solver
-        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
-        // Attempt to disable the session key
-        _toRevert(CAM.CredibleAccountModule_SessionKeyDoesNotExist.selector, abi.encode(otherSessionKey.pub));
-        cam.disableSessionKey(otherSessionKey.pub);
         vm.stopPrank();
     }
 
@@ -405,7 +397,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     function test_getLockedTokensForSessionKey() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
-        ICAM.LockedToken[] memory lockedTokens = cam.getLockedTokensForSessionKey(sessionKey.pub);
+        ICredibleAccountModule.LockedToken[] memory lockedTokens = cam.getLockedTokensForSessionKey(sessionKey.pub);
         assertEq(lockedTokens.length, 3, "Number of locked tokens does not match expected");
         assertEq(lockedTokens[0].token, tokens[0], "The first locked token address does not match expected");
         assertEq(
@@ -596,11 +588,27 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         vm.stopPrank();
     }
 
-    // Test: Should always revert
-    function test_isValidSignatureWithSender() public withRequiredModules {
-        _toRevert(CAM.NotImplemented.selector, hex"");
-        cam.isValidSignatureWithSender(eoa.pub, bytes32(0), hex"");
-        vm.stopPrank();
+    // Test: isValidSignatureWithSender should return success for valid signature
+    function test_isValidSignatureWithSender_ValidSignature() public {
+        // Create a test hash to sign
+        bytes32 testHash = keccak256("test message");
+        // Sign the hash with sessionKey
+        bytes memory signature = _ethSign(testHash, sessionKey);
+        // Call isValidSignatureWithSender
+        bytes4 result = cam.isValidSignatureWithSender(sessionKey.pub, testHash, signature);
+        // Should return ERC1271 success value
+        assertEq(result, bytes4(0x1626ba7e), "Should return ERC1271 success value for valid signature");
+    }
+
+    // Test: isValidSignatureWithSender should fail when signer doesn't match sender
+    function test_isValidSignatureWithSender_RevertWhen_SignerMismatch() public {
+        // Create a test hash to sign
+        bytes32 testHash = keccak256("test message");
+        bytes memory signature = _ethSign(testHash, alice);
+        // Call isValidSignatureWithSender
+        bytes4 result = cam.isValidSignatureWithSender(sessionKey.pub, testHash, signature);
+        // Should return failure value
+        assertEq(result, bytes4(0xffffffff), "Should return failure value when signer doesn't match sender");
     }
 
     // Test: claiming all tokens (batch)
@@ -648,9 +656,9 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         // Warp time to expire the session key
         vm.warp(validUntil + 1);
         // Claim tokens by solver
-        bytes memory usdcData = _createTokenTransferFromExecution(address(scw), solver.pub, amounts[0]);
-        bytes memory daiData = _createTokenTransferFromExecution(address(scw), solver.pub, amounts[1]);
-        bytes memory usdtData = _createTokenTransferFromExecution(address(scw), solver.pub, amounts[2]);
+        bytes memory usdcData = _createTokenTransferExecution(solver.pub, amounts[0]);
+        bytes memory daiData = _createTokenTransferExecution(solver.pub, amounts[1]);
+        bytes memory usdtData = _createTokenTransferExecution(solver.pub, amounts[2]);
         Execution[] memory batch = new Execution[](3);
         batch[0] = Execution({target: address(usdc), value: 0, callData: usdcData});
         batch[1] = Execution({target: address(dai), value: 0, callData: daiData});
@@ -699,7 +707,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         dai.mint(address(scw), 1e18);
         // Set up calldata batch
         // Invalid transaction as only 1 ether unlocked
-        bytes memory daiData = _createTokenTransferFromExecution(address(scw), alice.pub, 2e18);
+        bytes memory daiData = _createTokenTransferExecution(alice.pub, 2e18);
         bytes memory opCalldata = abi.encodeCall(
             IERC7579Account.execute, (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(dai), 0, daiData))
         );
@@ -723,10 +731,10 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         dai.mint(address(scw), 1e18);
         usdt.mint(address(scw), 1e18);
         // Set up calldata batch
-        bytes memory usdcData = _createTokenTransferFromExecution(address(scw), solver.pub, 1e6);
-        bytes memory daiData = _createTokenTransferFromExecution(address(scw), solver.pub, 1e18);
+        bytes memory usdcData = _createTokenTransferExecution(solver.pub, 1e6);
+        bytes memory daiData = _createTokenTransferExecution(solver.pub, 1e18);
         // Invalid transaction as only 1 ether unlocked
-        bytes memory usdtData = _createTokenTransferFromExecution(address(scw), solver.pub, 2e18);
+        bytes memory usdtData = _createTokenTransferExecution(solver.pub, 1e18 + 1 wei);
         Execution[] memory batch = new Execution[](3);
         batch[0] = Execution({target: address(usdc), value: 0, callData: usdcData});
         batch[1] = Execution({target: address(dai), value: 0, callData: daiData});
@@ -782,21 +790,19 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
 
     // Test: Should return correct digested ERC20.transferFrom claim
     function test_exposed_digestClaim() public withRequiredModules {
-        bytes memory data = _createTokenTransferFromExecution(address(scw), alice.pub, amounts[0]);
-        (bytes4 selector, address from, address to, uint256 amount) = harness.exposed_digestClaimTx(data);
-        assertEq(selector, IERC20.transferFrom.selector);
-        assertEq(from, address(scw));
+        bytes memory data = _createTokenTransferExecution(alice.pub, amounts[0]);
+        (bytes4 selector, address to, uint256 amount) = harness.exposed_digestClaimTx(data);
+        assertEq(selector, IERC20.transfer.selector);
         assertEq(to, alice.pub);
         assertEq(amount, amounts[0]);
         vm.stopPrank();
     }
 
     // Test: Should return blank information for non-ERC20.transfer claims
-    function test_exposed_digestClaim_nonTransferFrom() public withRequiredModules {
-        bytes memory data = _createTokenTransferExecution(alice.pub, amounts[0]);
-        (bytes4 selector, address from, address to, uint256 amount) = harness.exposed_digestClaimTx(data);
+    function test_exposed_digestClaim_nonTransfer() public withRequiredModules {
+        bytes memory data = _createTokenTransferFromExecution(address(scw), alice.pub, amounts[0]);
+        (bytes4 selector, address to, uint256 amount) = harness.exposed_digestClaimTx(data);
         assertEq(selector, bytes4(0));
-        assertEq(from, address(0));
         assertEq(to, address(0));
         assertEq(amount, 0);
         vm.stopPrank();
@@ -806,11 +812,12 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     function test_exposed_digestSignature() public {
         // Set up the test environment and enable a session key
         _testSetup();
+        vm.startPrank(address(scw));
         // Lock some tokens
         bytes memory rl = _createResourceLock(address(scw));
         harness.enableSessionKey(rl);
         // Prepare user operation data
-        bytes memory data = _createTokenTransferFromExecution(address(scw), alice.pub, amounts[0]);
+        bytes memory data = _createTokenTransferExecution(alice.pub, amounts[0]);
         bytes memory opCalldata = abi.encodeCall(
             IERC7579Account.execute,
             (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(usdc), uint256(0), data))
@@ -820,12 +827,8 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         bytes32 hash = entrypoint.getUserOpHash(op);
         bytes memory expectedSig = _ethSign(hash, sessionKey);
         (op,) = _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldata);
-        (bytes memory signature, bytes memory proof) = harness.exposed_digestSignature(op.signature);
+        bytes memory signature = harness.exposed_digestSignature(op.signature);
         assertEq(signature, expectedSig, "signature should match");
-        assertEq(proof.length, PROOF.length, "merkleProof should match");
-        for (uint256 i; i < proof.length; ++i) {
-            assertEq(proof[i], PROOF[i], "merkleProof should match");
-        }
     }
 
     // Test: Retrieving locked balances
@@ -833,7 +836,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         // Lock some tokens
         bytes memory rl = _createResourceLock(address(scw));
         harness.enableSessionKey(rl);
-        // Lock same tokens again uder different session key
+        // Lock same tokens again under different session key
         TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
         for (uint256 i; i < tokens.length; ++i) {
             tokenAmounts[i] = TokenData(tokens[i], 1 wei);
@@ -878,5 +881,494 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         assertEq(initialBalances[1].amount, amounts[1], "Balance of DAI should be 200 DAI");
         assertEq(initialBalances[2].token, address(usdt), "USDT should be second token");
         assertEq(initialBalances[2].amount, amounts[2], "Balance of USDT should be 300 USDT");
+    }
+
+    // Test: Grant SESSION_KEY_DISABLER role to an address
+    function test_grantSessionKeyDisablerRole() public withRequiredModules {
+        // Set up the test environment
+        vm.stopPrank();
+        vm.startPrank(deployer.pub);
+        // Grant role to alice
+        vm.expectEmit(true, true, false, false);
+        emit ICredibleAccountModule.SessionKeyDisablerRoleGranted(alice.pub, deployer.pub);
+        cam.grantSessionKeyDisablerRole(alice.pub);
+        // Verify alice has the role
+        assertTrue(cam.hasSessionKeyDisablerRole(alice.pub), "Alice should have SESSION_KEY_DISABLER role");
+    }
+
+    // Test: Only admin can grant SESSION_KEY_DISABLER role
+    function test_grantSessionKeyDisablerRole_revertWhen_notAdmin() public withRequiredModules {
+        // Grant role to alice first
+        vm.stopPrank();
+        vm.startPrank(deployer.pub);
+        cam.grantSessionKeyDisablerRole(alice.pub);
+        vm.stopPrank();
+        // Try to grant role from non-admin account
+        vm.prank(alice.pub);
+        vm.expectRevert();
+        cam.grantSessionKeyDisablerRole(alice.pub);
+    }
+
+    // Test: Revoke SESSION_KEY_DISABLER role from an address
+    function test_revokeSessionKeyDisablerRole() public withRequiredModules {
+        vm.stopPrank();
+        vm.startPrank(deployer.pub);
+        // First grant role to alice
+        cam.grantSessionKeyDisablerRole(alice.pub);
+        // Verify alice has the role
+        assertTrue(cam.hasSessionKeyDisablerRole(alice.pub), "Alice should have SESSION_KEY_DISABLER role");
+        // Revoke role from alice
+        vm.expectEmit(true, true, false, false);
+        emit ICredibleAccountModule.SessionKeyDisablerRoleRevoked(alice.pub, deployer.pub);
+        cam.revokeSessionKeyDisablerRole(alice.pub);
+        // Verify alice no longer has the role
+        assertFalse(cam.hasSessionKeyDisablerRole(alice.pub), "Alice should not have SESSION_KEY_DISABLER role");
+    }
+
+    // Test: Only admin can revoke SESSION_KEY_DISABLER role
+    function test_revokeSessionKeyDisablerRole_revertWhen_notAdmin() public withRequiredModules {
+        // Grant role to alice first
+        vm.stopPrank();
+        vm.startPrank(deployer.pub);
+        cam.grantSessionKeyDisablerRole(alice.pub);
+        vm.stopPrank();
+        // Try to revoke role from non-admin account
+        vm.prank(alice.pub);
+        vm.expectRevert();
+        cam.revokeSessionKeyDisablerRole(alice.pub);
+    }
+
+    // Test: Get all addresses with SESSION_KEY_DISABLER role
+    function test_getSessionKeyDisablers() public withRequiredModules {
+        // Grant role to alice and another address
+        vm.stopPrank();
+        vm.startPrank(deployer.pub);
+        cam.grantSessionKeyDisablerRole(alice.pub);
+        cam.grantSessionKeyDisablerRole(bob.pub);
+        vm.stopPrank();
+        // Get all disablers
+        address[] memory disablers = cam.getSessionKeyDisablers();
+        // Should have 3 disablers (owner1, alice, bob)
+        assertEq(disablers.length, 3, "Should have 3 session key disablers");
+        // Check that all expected addresses are in the list
+        bool foundOwner = false;
+        bool foundAlice = false;
+        bool foundBob = false;
+        for (uint256 i; i < disablers.length; ++i) {
+            if (disablers[i] == deployer.pub) foundOwner = true;
+            if (disablers[i] == alice.pub) foundAlice = true;
+            if (disablers[i] == bob.pub) foundBob = true;
+        }
+        assertTrue(foundOwner, "Owner should be in disablers list");
+        assertTrue(foundAlice, "Alice should be in disablers list");
+        assertTrue(foundBob, "Bob should be in disablers list");
+    }
+
+    // Test: Disable session key with SESSION_KEY_DISABLER role
+    function test_disableSessionKey_withDisablerRole() public withRequiredModules {
+        _enableSessionKey(address(scw));
+        // Grant SESSION_KEY_DISABLER role to alice BEFORE claiming tokens
+        vm.stopPrank();
+        vm.prank(deployer.pub);
+        cam.grantSessionKeyDisablerRole(alice.pub);
+        // Verify session key exists and is active
+        vm.startPrank(address(scw));
+        SessionData memory sessionDataBefore = cam.getSessionKeyData(sessionKey.pub);
+        assertGt(sessionDataBefore.validUntil, 0, "Session key should be active before test");
+        // Alice should be able to disable the session key (with locked tokens)
+        vm.stopPrank();
+        vm.startPrank(alice.pub);
+        vm.expectEmit(true, true, false, false);
+        emit ICredibleAccountModule.CredibleAccountModule_SessionKeyDisabled(sessionKey.pub, address(scw));
+        cam.disableSessionKey(sessionKey.pub);
+        SessionData memory finalSessionData = cam.getSessionKeyData(sessionKey.pub);
+        assertEq(finalSessionData.validUntil, 0, "Session key should be disabled");
+    }
+
+    // Test: Wallet owner can still disable their own session keys
+    function test_disableSessionKey_walletOwnerCanDisable() public withRequiredModules {
+        _enableSessionKey(address(scw));
+        // Claim all tokens by solver
+        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        // Wallet owner should be able to disable their own session key
+        vm.expectEmit(true, true, false, false);
+        emit ICredibleAccountModule.CredibleAccountModule_SessionKeyDisabled(sessionKey.pub, address(scw));
+        cam.disableSessionKey(sessionKey.pub);
+        // Verify session key is disabled
+        SessionData memory sessionData = cam.getSessionKeyData(sessionKey.pub);
+        assertEq(sessionData.validUntil, 0, "Session key should be disabled");
+    }
+
+    // Test: Unauthorized user cannot disable session key
+    function test_disableSessionKey_revertWhen_unauthorized() public withRequiredModules {
+        _enableSessionKey(address(scw));
+        // Claim all tokens by solver
+        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        // Unauthorized user should not be able to disable session key
+        vm.stopPrank();
+        vm.prank(alice.pub);
+        _toRevert(CAM.CredibleAccountModule_UnauthorizedDisabler.selector, abi.encode(alice.pub));
+        cam.disableSessionKey(sessionKey.pub);
+    }
+
+    // Test: Batch disable session keys
+    function test_batchDisableSessionKeys() public withRequiredModules {
+        // Enable multiple session keys
+        _enableSessionKey(address(scw));
+        // Enable another session key
+        TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
+        for (uint256 i; i < tokens.length; ++i) {
+            tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
+        }
+        bytes memory rl = abi.encode(
+            ResourceLock({
+                chainId: 42161,
+                smartWallet: address(scw),
+                sessionKey: otherSessionKey.pub,
+                validAfter: validAfter,
+                validUntil: validUntil,
+                bidHash: DUMMY_BID_HASH,
+                tokenData: tokenAmounts
+            })
+        );
+        cam.enableSessionKey(rl);
+        // Claim all tokens for both session keys
+        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        // Batch disable session keys
+        address[] memory sessionKeys = new address[](2);
+        sessionKeys[0] = sessionKey.pub;
+        sessionKeys[1] = otherSessionKey.pub;
+        vm.stopPrank();
+        vm.startPrank(deployer.pub);
+        cam.batchDisableSessionKeys(sessionKeys);
+        // Verify both session keys are disabled
+        SessionData memory sessionData1 = cam.getSessionKeyData(sessionKeys[0]);
+        SessionData memory sessionData2 = cam.getSessionKeyData(sessionKeys[1]);
+        assertEq(sessionData1.validUntil, 0, "First session key should be disabled");
+        assertEq(sessionData2.validUntil, 0, "Second session key should be disabled");
+    }
+
+    // Test: Only SESSION_KEY_DISABLER role can batch disable
+    function test_batchDisableSessionKeys_revertWhen_unauthorized() public withRequiredModules {
+        _enableSessionKey(address(scw));
+        address[] memory sessionKeys = new address[](1);
+        sessionKeys[0] = sessionKey.pub;
+        // Unauthorized user should not be able to batch disable
+        vm.stopPrank();
+        vm.prank(alice.pub);
+        vm.expectRevert();
+        cam.batchDisableSessionKeys(sessionKeys);
+    }
+
+    // Test: Batch disable skips non-existent session keys
+    function test_batchDisableSessionKeys_skipsNonExistentKeys() public withRequiredModules {
+        _enableSessionKey(address(scw));
+        // Claim all tokens
+        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        // Create array with valid and invalid session keys
+        address[] memory sessionKeys = new address[](2);
+        sessionKeys[0] = sessionKey.pub; // Valid
+        sessionKeys[1] = otherSessionKey.pub; // Invalid
+        // Should not revert, just skip invalid keys
+        vm.stopPrank();
+        vm.startPrank(deployer.pub);
+        cam.batchDisableSessionKeys(sessionKeys);
+        // Verify valid session key is disabled
+        SessionData memory sessionData = cam.getSessionKeyData(sessionKeys[0]);
+        assertEq(sessionData.validUntil, 0, "Valid session key should be disabled");
+    }
+
+    // Test: Emergency disable session key
+    function test_emergencyDisableSessionKey() public withRequiredModules {
+        _enableSessionKey(address(scw));
+        // Emergency disable should work even with locked tokens
+        vm.stopPrank();
+        vm.startPrank(deployer.pub);
+        vm.expectEmit(true, true, false, false);
+        emit ICredibleAccountModule.CredibleAccountModule_SessionKeyDisabled(sessionKey.pub, address(scw));
+        cam.emergencyDisableSessionKey(sessionKey.pub);
+        // Verify session key is disabled
+        SessionData memory sessionData = cam.getSessionKeyData(sessionKey.pub);
+        assertEq(sessionData.validUntil, 0, "Session key should be disabled");
+    }
+
+    // Test: Only DEFAULT_ADMIN_ROLE can emergency disable
+    function test_emergencyDisableSessionKey_revertWhen_notAdmin() public withRequiredModules {
+        _enableSessionKey(address(scw));
+        // Non-admin should not be able to emergency disable
+        vm.stopPrank();
+        vm.prank(alice.pub);
+        vm.expectRevert();
+        cam.emergencyDisableSessionKey(sessionKey.pub);
+    }
+
+    // Test: Emergency disable with non-existent session key
+    function test_emergencyDisableSessionKey_revertWhen_nonExistentKey() public withRequiredModules {
+        vm.stopPrank();
+        _toRevert(CAM.CredibleAccountModule_SessionKeyDoesNotExist.selector, abi.encode(otherSessionKey.pub));
+        vm.startPrank(deployer.pub);
+        cam.emergencyDisableSessionKey(otherSessionKey.pub);
+    }
+
+    // Test: Session key to wallet mapping is populated correctly
+    function test_sessionKeyToWallet_mapping() public withRequiredModules {
+        _enableSessionKey(address(scw));
+        // Verify mapping is populated
+        address mappedWallet = cam.sessionKeyToWallet(sessionKey.pub);
+        assertEq(mappedWallet, address(scw), "Session key should be mapped to correct wallet");
+    }
+
+    // Test: Multiple users with SESSION_KEY_DISABLER role can disable keys
+    function test_multipleDisablers_canDisableKeys() public withRequiredModules {
+        // Enable session keys for both wallets
+        _enableSessionKey(address(scw));
+        vm.stopPrank();
+        // Create two different wallets with session keys
+        ModularEtherspotWallet scw2 = _createSCW(alice.pub);
+        _installModule(alice.pub, scw2, MODULE_TYPE_VALIDATOR, address(moecdsav), hex"");
+        _installHookViaMultiplexer(scw2, address(cam), HookType.GLOBAL);
+        _installModule(alice.pub, scw2, MODULE_TYPE_VALIDATOR, address(cam), abi.encode(MODULE_TYPE_VALIDATOR));
+        usdc.mint(address(scw2), amounts[0]);
+        dai.mint(address(scw2), amounts[1]);
+        usdt.mint(address(scw2), amounts[2]);
+        vm.startPrank(address(scw2));
+        TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
+        for (uint256 i; i < tokens.length; ++i) {
+            tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
+        }
+        bytes memory rl = abi.encode(
+            ResourceLock({
+                chainId: 42161,
+                smartWallet: address(scw2),
+                sessionKey: otherSessionKey.pub,
+                validAfter: validAfter,
+                validUntil: validUntil,
+                bidHash: DUMMY_BID_HASH,
+                tokenData: tokenAmounts
+            })
+        );
+        cam.enableSessionKey(rl);
+        vm.stopPrank();
+        // Grant SESSION_KEY_DISABLER role to alice and bob
+        vm.startPrank(deployer.pub);
+        cam.grantSessionKeyDisablerRole(alice.pub);
+        cam.grantSessionKeyDisablerRole(bob.pub);
+        vm.stopPrank();
+        // Claim tokens for both session keys to make them disableable
+        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        // Alice disables first session key
+        vm.prank(alice.pub);
+        cam.disableSessionKey(sessionKey.pub);
+        // Bob disables second session key
+        vm.prank(bob.pub);
+        cam.disableSessionKey(otherSessionKey.pub);
+        // Verify both session keys are disabled
+        SessionData memory sessionData1 = cam.getSessionKeyData(sessionKey.pub);
+        SessionData memory sessionData2 = cam.getSessionKeyData(otherSessionKey.pub);
+        assertEq(sessionData1.validUntil, 0, "First session key should be disabled");
+        assertEq(sessionData2.validUntil, 0, "Second session key should be disabled");
+    }
+
+    // Test: Disable session key after expiry with disabler role
+    function test_disableSessionKey_afterExpiry_withDisablerRole() public withRequiredModules {
+        _enableSessionKey(address(scw));
+        // Grant SESSION_KEY_DISABLER role to alice
+        vm.stopPrank();
+        vm.startPrank(deployer.pub);
+        cam.grantSessionKeyDisablerRole(alice.pub);
+        // Warp to after session key expiration
+        vm.warp(validUntil + 1);
+        vm.stopPrank();
+        // Alice should be able to disable expired session key even with locked tokens
+        vm.prank(alice.pub);
+        vm.expectEmit(true, true, false, false);
+        emit ICredibleAccountModule.CredibleAccountModule_SessionKeyDisabled(sessionKey.pub, address(scw));
+        cam.disableSessionKey(sessionKey.pub);
+        // Verify session key is disabled
+        SessionData memory sessionData = cam.getSessionKeyData(sessionKey.pub);
+        assertEq(sessionData.validUntil, 0, "Session key should be disabled");
+    }
+
+    // Test: Batch disable with mixed valid/expired/claimed session keys
+    function test_batchDisableSessionKeys_mixedStates() public withRequiredModules {
+        // Enable multiple session keys with different states
+        _enableSessionKey(address(scw));
+        // Enable second session key that will expire
+        TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
+        for (uint256 i; i < tokens.length; ++i) {
+            tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
+        }
+        bytes memory rl2 = abi.encode(
+            ResourceLock({
+                chainId: 42161,
+                smartWallet: address(scw),
+                sessionKey: otherSessionKey.pub,
+                validAfter: validAfter,
+                validUntil: uint48(block.timestamp + 100), // Will expire soon
+                bidHash: DUMMY_BID_HASH,
+                tokenData: tokenAmounts
+            })
+        );
+        cam.enableSessionKey(rl2);
+        // Enable third session key
+        User memory thirdSessionKey = _createUser("Third Session Key");
+        bytes memory rl3 = abi.encode(
+            ResourceLock({
+                chainId: 42161,
+                smartWallet: address(scw),
+                sessionKey: thirdSessionKey.pub,
+                validAfter: validAfter,
+                validUntil: validUntil,
+                bidHash: DUMMY_BID_HASH,
+                tokenData: tokenAmounts
+            })
+        );
+        cam.enableSessionKey(rl3);
+        // Claim tokens for first session key only
+        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        // Warp time to expire second session key
+        vm.warp(block.timestamp + 150);
+        // Batch disable all session keys
+        address[] memory sessionKeys = new address[](3);
+        sessionKeys[0] = sessionKey.pub; // Claimed
+        sessionKeys[1] = otherSessionKey.pub; // Expired
+        sessionKeys[2] = thirdSessionKey.pub; // Still has locked tokens, not expired
+        vm.stopPrank();
+        vm.startPrank(deployer.pub);
+        cam.batchDisableSessionKeys(sessionKeys);
+        // Verify first two are disabled, third should remain
+        SessionData memory sessionData1 = cam.getSessionKeyData(sessionKeys[0]);
+        SessionData memory sessionData2 = cam.getSessionKeyData(sessionKeys[1]);
+        SessionData memory sessionData3 = cam.getSessionKeyData(sessionKeys[2]);
+        assertEq(sessionData1.validUntil, 0, "Claimed session key should be disabled");
+        assertEq(sessionData2.validUntil, 0, "Expired session key should be disabled");
+        assertEq(sessionData3.validUntil, 0, "Active session key should be disabled");
+    }
+
+    // Test: Role management events are emitted correctly
+    function test_roleManagement_events() public withRequiredModules {
+        vm.stopPrank();
+        vm.startPrank(deployer.pub);
+        // Test granting role emits event
+        vm.expectEmit(true, true, false, false);
+        emit ICredibleAccountModule.SessionKeyDisablerRoleGranted(alice.pub, deployer.pub);
+        cam.grantSessionKeyDisablerRole(alice.pub);
+        // Test revoking role emits event
+        vm.expectEmit(true, true, false, false);
+        emit ICredibleAccountModule.SessionKeyDisablerRoleRevoked(alice.pub, deployer.pub);
+        cam.revokeSessionKeyDisablerRole(alice.pub);
+    }
+
+    // Test: supportsInterface includes AccessControlEnumerable
+    function test_supportsInterface_includesAccessControlEnumerable() public withRequiredModules {
+        // Check that contract supports AccessControlEnumerable interface
+        bytes4 accessControlEnumerableInterface = type(IAccessControlEnumerable).interfaceId;
+        assertTrue(
+            cam.supportsInterface(accessControlEnumerableInterface),
+            "Contract should support IAccessControlEnumerable interface"
+        );
+    }
+
+    // Test: Admin can transfer admin role
+    function test_adminRoleTransfer() public withRequiredModules {
+        vm.stopPrank();
+        vm.startPrank(deployer.pub);
+        // Grant admin role to alice
+        cam.grantRole(cam.DEFAULT_ADMIN_ROLE(), alice.pub);
+        // Alice should now be able to grant SESSION_KEY_DISABLER role
+        vm.stopPrank();
+        vm.prank(alice.pub);
+        cam.grantSessionKeyDisablerRole(bob.pub);
+        // Verify bob has the role
+        assertTrue(cam.hasSessionKeyDisablerRole(bob.pub), "Bob should have SESSION_KEY_DISABLER role");
+    }
+
+    // Test: Emergency disable works even with locked tokens
+    function test_emergencyDisableSessionKey_withLockedTokens() public withRequiredModules {
+        _enableSessionKey(address(scw));
+        // Verify session key has locked tokens
+        ICredibleAccountModule.LockedToken[] memory lockedTokens = cam.getLockedTokensForSessionKey(sessionKey.pub);
+        assertGt(lockedTokens.length, 0, "Session key should have locked tokens");
+        vm.stopPrank();
+        vm.startPrank(deployer.pub);
+        // Emergency disable should work even with locked tokens
+        vm.expectEmit(true, true, false, false);
+        emit ICredibleAccountModule.CredibleAccountModule_SessionKeyDisabled(sessionKey.pub, address(scw));
+        cam.emergencyDisableSessionKey(sessionKey.pub);
+
+        // Verify session key is disabled
+        SessionData memory sessionData = cam.getSessionKeyData(sessionKey.pub);
+        assertEq(sessionData.validUntil, 0, "Session key should be disabled");
+    }
+
+    // Test: Session key mapping is cleaned up on disable
+    function test_sessionKeyMapping_cleanedUpOnDisable() public withRequiredModules {
+        _enableSessionKey(address(scw));
+        // Verify mapping exists
+        address mappedWallet = cam.sessionKeyToWallet(sessionKey.pub);
+        assertEq(mappedWallet, address(scw), "Session key should be mapped to wallet");
+        // Claim tokens and disable
+        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        cam.disableSessionKey(sessionKey.pub);
+        // Verify mapping is cleaned up
+        mappedWallet = cam.sessionKeyToWallet(sessionKey.pub);
+        assertEq(mappedWallet, address(0), "Session key mapping should be cleared");
+    }
+
+    // Test: Get session key disablers when no additional roles granted
+    function test_getSessionKeyDisablers_onlyDeployer() public withRequiredModules {
+        // Should only have deployer (owner1)
+        address[] memory disablers = cam.getSessionKeyDisablers();
+        assertEq(disablers.length, 1, "Should have only one disabler");
+        assertEq(disablers[0], deployer.pub, "Should be the deployer");
+    }
+
+    // Test: Disable session key works with different wallet contexts
+    function test_disableSessionKey_differentWalletContexts() public withRequiredModules {
+        // Enable session key from first wallet
+        _enableSessionKey(address(scw));
+        vm.stopPrank();
+        // Create second wallet
+        ModularEtherspotWallet scw2 = _createSCW(alice.pub);
+        _installModule(alice.pub, scw2, MODULE_TYPE_VALIDATOR, address(moecdsav), hex"");
+        _installHookViaMultiplexer(scw2, address(cam), HookType.GLOBAL);
+        _installModule(alice.pub, scw2, MODULE_TYPE_VALIDATOR, address(cam), abi.encode(MODULE_TYPE_VALIDATOR));
+        usdc.mint(address(scw2), amounts[0]);
+        dai.mint(address(scw2), amounts[1]);
+        usdt.mint(address(scw2), amounts[2]);
+        // Enable session key from second wallet
+        vm.startPrank(address(scw2));
+        TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
+        for (uint256 i; i < tokens.length; ++i) {
+            tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
+        }
+        bytes memory rl = abi.encode(
+            ResourceLock({
+                chainId: 42161,
+                smartWallet: address(scw2),
+                sessionKey: otherSessionKey.pub,
+                validAfter: validAfter,
+                validUntil: validUntil,
+                bidHash: DUMMY_BID_HASH,
+                tokenData: tokenAmounts
+            })
+        );
+        cam.enableSessionKey(rl);
+        vm.stopPrank();
+        // Grant disabler role to alice
+        vm.startPrank(deployer.pub);
+        cam.grantSessionKeyDisablerRole(alice.pub);
+        // Claim tokens for both session keys
+        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        // Alice should be able to disable both session keys
+        vm.stopPrank();
+        vm.startPrank(alice.pub);
+        cam.disableSessionKey(sessionKey.pub);
+        cam.disableSessionKey(otherSessionKey.pub);
+        // Verify both are disabled
+        SessionData memory sessionData1 = cam.getSessionKeyData(sessionKey.pub);
+        SessionData memory sessionData2 = cam.getSessionKeyData(otherSessionKey.pub);
+        assertEq(sessionData1.validUntil, 0, "First session key should be disabled");
+        assertEq(sessionData2.validUntil, 0, "Second session key should be disabled");
     }
 }

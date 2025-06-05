@@ -6,9 +6,7 @@ import {CredibleAccountModule} from "../../src/modules/validators/CredibleAccoun
 import "../../src/common/Structs.sol";
 
 contract CredibleAccountModuleHarness is CredibleAccountModule {
-    constructor(address _proofVerifier, address _hookMultiPlexer)
-        CredibleAccountModule(_proofVerifier, _hookMultiPlexer)
-    {}
+    constructor(address _hookMultiPlexer) CredibleAccountModule(_hookMultiPlexer) {}
 
     function exposed_validateSingleCall(bytes calldata _callData, address _sessionKey, address _userOpSender)
         external
@@ -34,7 +32,7 @@ contract CredibleAccountModuleHarness is CredibleAccountModule {
     function exposed_digestClaimTx(bytes calldata _data)
         external
         pure
-        returns (bytes4 selector, address from, address to, uint256 amount)
+        returns (bytes4 selector, address to, uint256 amount)
     {
         return _digestClaimTx(_data);
     }
@@ -42,7 +40,7 @@ contract CredibleAccountModuleHarness is CredibleAccountModule {
     function exposed_digestSignature(bytes calldata _signatureWithProof)
         external
         pure
-        returns (bytes memory signature, bytes memory proof)
+        returns (bytes memory signature)
     {
         return _digestSignature(_signatureWithProof);
     }
