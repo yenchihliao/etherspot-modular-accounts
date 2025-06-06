@@ -22,9 +22,9 @@ contract BootstrapScript is Script {
 
         console2.log("Deploying Bootstrap...");
 
-        Bootstrap Bootstrap = new Bootstrap();
+        Bootstrap bootstrap = new Bootstrap();
 
-        console2.log("Bootstrap deployed at address", address(Bootstrap));
+        console2.log("Bootstrap deployed at address", address(bootstrap));
         console2.log("Finished deployment sequence!");
 
         vm.stopBroadcast();

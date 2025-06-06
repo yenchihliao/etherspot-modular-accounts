@@ -52,7 +52,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
                                MAPPINGS
     //////////////////////////////////////////////////////////////*/
 
-    mapping(address wallet => bool) public moduleInitialized; // Used for Validator
+    mapping(address wallet => Initialization) public moduleInitialized;
     mapping(address wallet => address[] keys) public walletSessionKeys;
     mapping(address sessionKey => address wallet) public sessionKeyToWallet;
     mapping(address sessionKey => mapping(address wallet => SessionData)) public sessionData;
@@ -306,8 +306,12 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
             if (!hookMultiPlexer.hasHook(msg.sender, address(this), HookType.GLOBAL)) {
                 revert CredibleAccountModule_NotAddedToHookMultiplexer();
             }
-            moduleInitialized[msg.sender] = true;
+            moduleInitialized[msg.sender].validatorInitialized = true;
             emit CredibleAccountModule_ModuleInstalled(msg.sender);
+        } else if (moduleType == MODULE_TYPE_HOOK) {
+            moduleInitialized[msg.sender].hookInitialized = true;
+        } else {
+            revert CredibleAccountModule_InvalidModuleType();
         }
     }
 
@@ -342,12 +346,13 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
                 delete lockedTokens[sessionKeys[i]];
             }
             delete walletSessionKeys[sender];
-            moduleInitialized[sender] = false;
+            moduleInitialized[sender].validatorInitialized = false;
             emit CredibleAccountModule_ModuleUninstalled(sender);
         } else if (moduleType == MODULE_TYPE_HOOK) {
-            if (moduleInitialized[sender] == true) {
+            if (moduleInitialized[sender].validatorInitialized == true) {
                 revert CredibleAccountModule_ValidatorExists();
             }
+            moduleInitialized[sender].hookInitialized = false;
         } else {
             revert CredibleAccountModule_InvalidModuleType();
         }
@@ -368,7 +373,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
 
     // @inheritdoc ICredibleAccountModule
     function isInitialized(address smartAccount) external view returns (bool) {
-        return moduleInitialized[smartAccount];
+        return moduleInitialized[smartAccount].validatorInitialized;
     }
 
     /*//////////////////////////////////////////////////////////////

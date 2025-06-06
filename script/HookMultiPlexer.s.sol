@@ -12,6 +12,8 @@ import {CredibleAccountModule} from "../src/modules/validators/CredibleAccountMo
  * @dev Deployment script for HookMultiPlexer and CAM.
  */
 contract HookMultiPlexerScript is Script {
+    bytes32 public immutable SALT = bytes32(abi.encodePacked("ModularEtherspotWallet:Create2:salt"));
+
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         vm.startBroadcast(deployerPrivateKey);
@@ -23,19 +25,19 @@ contract HookMultiPlexerScript is Script {
 
         console2.log("Deploying HookMultiPlexer...");
 
-        HookMultiPlexer hmp = new HookMultiPlexer();
+        HookMultiPlexer hmp = new HookMultiPlexer{salt: SALT}();
 
         console2.log("HookMultiPlexer deployed at address", address(hmp));
 
-        /*//////////////////////////////////////////////////////////////
-                          Deploy CredibleAccountModule
-        //////////////////////////////////////////////////////////////*/
+        // /*//////////////////////////////////////////////////////////////
+        //                   Deploy CredibleAccountModule
+        // //////////////////////////////////////////////////////////////*/
 
-        console2.log("Deploying CredibleAccountModule...");
+        // console2.log("Deploying CredibleAccountModule...");
 
-        CredibleAccountModule cam = new CredibleAccountModule(address(hmp));
+        // CredibleAccountModule cam = new CredibleAccountModule(address(hmp));
 
-        console2.log("CredibleAccountModule deployed at address", address(cam));
+        // console2.log("CredibleAccountModule deployed at address", address(cam));
         console2.log("Finished deployment sequence!");
 
         vm.stopBroadcast();
