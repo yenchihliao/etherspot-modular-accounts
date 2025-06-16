@@ -273,7 +273,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         if (!validateSessionKeyParams(sessionKeySigner, userOp)) {
             return VALIDATION_FAILED;
         }
-        SessionData memory sd = sessionData[sessionKeySigner][msg.sender];
+        SessionData storage sd = sessionData[sessionKeySigner][msg.sender];
         sd.live = false;
         return _packValidationData(false, sd.validUntil, sd.validAfter);
     }
