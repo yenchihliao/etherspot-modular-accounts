@@ -111,14 +111,6 @@ interface ICredibleAccountModule is IValidator, IHook {
     /// @param _sessionKey The session key address to forcibly disable
     function emergencyDisableSessionKey(address _sessionKey) external;
 
-    /// @notice Validates the parameters of a session key for a given user operation.
-    /// @param _sessionKey The address of the session key.
-    /// @param userOp The packed user operation containing the call data.
-    /// @return True if the session key parameters are valid for the user operation, false otherwise.
-    function validateSessionKeyParams(address _sessionKey, PackedUserOperation calldata userOp)
-        external
-        returns (bool);
-
     /// @notice Returns the list of associated session keys for the caller's wallet.
     /// @return keys The array of associated session key addresses.
     function getSessionKeysByWallet() external view returns (address[] memory keys);
@@ -149,12 +141,12 @@ interface ICredibleAccountModule is IValidator, IHook {
     /// @notice Retrieves the list of live session keys for the specified wallet
     /// @param _wallet The address of the wallet to query
     /// @return An array of live session key addresses
-    function getLiveSessionKeysForWallet(address _wallet) external returns (address[] memory);
+    function getLiveSessionKeysForWallet(address _wallet) external view returns (address[] memory);
 
     /// @notice Retrieves the list of expire session keys for the specified wallet
     /// @param _wallet The address of the wallet to query
     /// @return An array of expired session key addresses
-    function getExpiredSessionKeysForWallet(address _wallet) external returns (address[] memory);
+    function getExpiredSessionKeysForWallet(address _wallet) external view returns (address[] memory);
 
     /// @notice Checks if all tokens for a given session key have been claimed
     /// @dev Iterates through all locked tokens for the session key
@@ -183,11 +175,14 @@ interface ICredibleAccountModule is IValidator, IHook {
     /// @param data The data to pass during uninstallation.
     function onUninstall(bytes calldata data) external;
 
-    /// @notice Reverts with a "NotImplemented" error.
-    /// @param sender The address of the sender.
-    /// @param hash The hash of the message.
-    /// @param data The data associated with the message.
-    /// @return A bytes4 value indicating the function is not implemented.
+    /// @notice Validates a signature against a hash for a specific sender using session key validation
+    /// @dev Implements EIP-1271 signature validation with sender context for session-based authentication
+    /// @dev Recovers the signer from the ECDSA signature and validates it matches the expected sender
+    /// @dev Returns EIP-1271 magic value (0x1626ba7e) for valid signatures, 0xffffffff for invalid ones
+    /// @param sender The address of the expected signer/session key
+    /// @param hash The hash of the message that was signed
+    /// @param data The signature data containing the ECDSA signature (must be at least 65 bytes)
+    /// @return bytes4 Returns 0x1626ba7e if signature is valid, 0xffffffff if invalid or malformed
     function isValidSignatureWithSender(address sender, bytes32 hash, bytes calldata data)
         external
         view

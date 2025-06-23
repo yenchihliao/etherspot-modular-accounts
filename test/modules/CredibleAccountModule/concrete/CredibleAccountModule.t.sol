@@ -12,6 +12,7 @@ import {ExecutionLib} from "ERC7579/libs/ExecutionLib.sol";
 import "ERC7579/libs/ModeLib.sol";
 import {CredibleAccountModule as CAM} from "../../../../src/modules/validators/CredibleAccountModule.sol";
 import {ICredibleAccountModule} from "../../../../src/interfaces/ICredibleAccountModule.sol";
+import {HookMultiPlexer as HMP} from "../../../../src/modules/hooks/HookMultiPlexer.sol";
 import {HookMultiPlexerLib as HMPL} from "../../../../src/libraries/HookMultiPlexerLib.sol";
 import {ModularEtherspotWallet} from "../../../../src/wallet/ModularEtherspotWallet.sol";
 import "../../../../src/common/Enums.sol";
@@ -20,7 +21,6 @@ import {CredibleAccountModuleTestUtils as TestUtils} from "../utils/CredibleAcco
 import {TestWETH} from "../../../../src/test/TestWETH.sol";
 import {TestUniswapV2} from "../../../../src/test/TestUniswapV2.sol";
 import "../../../../src/utils/ERC4337Utils.sol";
-
 import {BootstrapConfig, BootstrapUtil, Bootstrap} from "../../../../src/utils/Bootstrap.sol";
 import {MockTarget} from "../../../../src/test/mocks/MockTarget.sol";
 
@@ -59,15 +59,30 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         assertEq(hmp.getHooks(address(scw))[0], address(cam));
     }
 
-    function test_uninstallCredibleAccountModule_Hook() public withRequiredModules {
+    function test_uninstallCredibleAccountModule_hook() public withRequiredModules {
+        // Verify that the hook is installed
+        assertEq(hmp.getHooks(address(scw))[0], address(cam));
+        // Uninstall CredibleAccountManager as Validator first
+        _uninstallModule(
+            eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(cam), abi.encode(MODULE_TYPE_VALIDATOR, address(scw))
+        );
+        // Uninstall the HookMultiplexer
+        _uninstallHookViaMultiplexer(scw, address(cam), HookType.GLOBAL);
+        assertFalse(
+            hmp.hasHook(address(scw), address(cam), HookType.GLOBAL), "CredibleAccountModule should be uninstalled"
+        );
+    }
+
+    function test_uninstallHookMultiPlexer_shouldRevert() public withRequiredModules {
         // Verify that the hook is installed
         assertEq(hmp.getHooks(address(scw))[0], address(cam));
         // Uninstall the HookMultiplexer
+        _toRevert(HMP.CannotUninstall.selector, hex"");
         _uninstallModule(eoa.pub, scw, MODULE_TYPE_HOOK, address(hmp), hex"");
-        assertEq(scw.getActiveHook(), address(0), "Active hook should be Zero Address");
+        assertEq(scw.getActiveHook(), address(hmp), "Active hook should be Zero Address");
     }
 
-    function test_onInstall_Validator_ViaUserOp_Single() public withRequiredModules {
+    function test_onInstall_validator_viaUserOp_single() public withRequiredModules {
         bytes memory installData = abi.encodeWithSelector(
             ModularEtherspotWallet.installModule.selector, uint256(1), address(cam), abi.encode(MODULE_TYPE_VALIDATOR)
         );
@@ -84,14 +99,14 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         vm.stopPrank();
     }
 
-    function test_onInstall_CredibleAccountModuleAsHook() public {
+    function test_onInstall_credibleAccountModuleAsHook() public {
         _testSetup();
         _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(moecdsav), hex"");
         _installHookViaMultiplexer(scw, address(cam), HookType.GLOBAL);
         assertEq(hmp.getHooks(address(scw))[0], address(cam));
     }
 
-    function test_onInstall_ValidatorAndHook_ViaUserOp_Batch() public {
+    function test_onInstall_validatorAndHook_viaUserOp_batch() public {
         _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(moecdsav), hex"");
         vm.startPrank(address(scw));
         Execution[] memory batch = new Execution[](2);
@@ -120,11 +135,11 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
 
     // Test: Verify that the CredibleAccountModule validator can be uninstalled
     // when all locked tokens have been claimed by the solver
-    function test_uninstallModule_Validator_AllLockedTokensClaimed() public withRequiredModules {
+    function test_uninstallModule_validator_allLockedTokensClaimed() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
         // Claim all tokens by solver
-        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        _claimTokensBySolver(eoa, scw, sessionKey, amounts[0], amounts[1], amounts[2]);
         vm.stopPrank();
         // Expect the uninstallation event to be emitted
         vm.expectEmit(false, false, false, true);
@@ -139,7 +154,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
 
     // Test: Verify that the CredibleAccountModule validator cannot be uninstalled
     // if locked tokens have not been claimed by the solver
-    function test_uninstallModule_Validator_RevertWhen_LockedTokensNotClaimed() public withRequiredModules {
+    function test_uninstallModule_validator_revertWhen_lockedTokensNotClaimed() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
         // Get previous validator in linked list
@@ -154,11 +169,11 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     // Test: Verify that the CredibleAccountModule hook can be uninstalled
     // when all locked tokens have been claimed by the solver
     // and validator is uninstalled
-    function test_uninstallModule_Hook_AllLockedTokensClaimed() public withRequiredModules {
+    function test_uninstallModule_hook_allLockedTokensClaimed() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
         // Claim all tokens by solver
-        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        _claimTokensBySolver(eoa, scw, sessionKey, amounts[0], amounts[1], amounts[2]);
         vm.stopPrank();
         // Uninstall the validator module first
         vm.expectEmit(true, true, false, false);
@@ -176,7 +191,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     // Test: Verify that the CredibleAccountModule hook can be uninstalled
     // when tokens partially claimed but session key has expired
     // and validator is uninstalled first
-    function test_uninstallModule_Hook_SessionKeyExpired() public withRequiredModules {
+    function test_uninstallModule_hook_sessionKeyExpired() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
         // Warp to after session key expiration
@@ -196,11 +211,11 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
 
     // Test: Verify that the CredibleAccountModule hook cannot be uninstalled
     // when validator is not uninstalled first
-    function test_uninstallModule_Hook_RevertWhen_ValidatorIsInstalled() public withRequiredModules {
+    function test_uninstallModule_hook_revertWhen_validatorIsInstalled() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
         // Try to remove the hook from the multiplexer
-        _toRevert(CAM.CredibleAccountModule_ValidatorExists.selector, hex"");
+        _toRevert(CAM.CredibleAccountModule_ValidatorMustBeUninstalledFirst.selector, hex"");
         vm.stopPrank();
         _uninstallHookViaMultiplexer(scw, address(cam), HookType.GLOBAL);
         // Verify that the hook is installed via the multiplexer for the wallet
@@ -241,14 +256,14 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     }
 
     // Test: Enabling a session key with an invalid session key should revert
-    function test_enableSessionKey_RevertIf_InvalidSesionKey() public withRequiredModules {
+    function test_enableSessionKey_revertIf_invalidSesionKey() public withRequiredModules {
         TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
         for (uint256 i; i < tokens.length; ++i) {
             tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
         }
         bytes memory rl = abi.encode(
             ResourceLock({
-                chainId: 42161,
+                chainId: block.chainid,
                 smartWallet: address(scw),
                 sessionKey: address(0),
                 validAfter: validAfter,
@@ -264,14 +279,14 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     }
 
     // Test: Enabling a session key with an invalid validAfter should revert
-    function test_enableSessionKey_RevertIf_InvalidValidAfter() public withRequiredModules {
+    function test_enableSessionKey_revertIf_invalidValidAfter() public withRequiredModules {
         TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
         for (uint256 i; i < tokens.length; ++i) {
             tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
         }
         bytes memory rl = abi.encode(
             ResourceLock({
-                chainId: 42161,
+                chainId: block.chainid,
                 smartWallet: address(scw),
                 sessionKey: sessionKey.pub,
                 validAfter: uint48(0),
@@ -287,7 +302,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     }
 
     // Test: Enabling a session key with an invalid validUntil should revert
-    function test_enableSessionKey_RevertIf_InvalidValidUntil() public withRequiredModules {
+    function test_enableSessionKey_revertIf_invalidValidUntil() public withRequiredModules {
         // validUntil that is 0
         TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
         for (uint256 i; i < tokens.length; ++i) {
@@ -295,7 +310,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         }
         bytes memory rl = abi.encode(
             ResourceLock({
-                chainId: 42161,
+                chainId: block.chainid,
                 smartWallet: address(scw),
                 sessionKey: sessionKey.pub,
                 validAfter: validAfter,
@@ -310,7 +325,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         // validUntil that is less than validAfter
         rl = abi.encode(
             ResourceLock({
-                chainId: 42161,
+                chainId: block.chainid,
                 smartWallet: address(scw),
                 sessionKey: sessionKey.pub,
                 validAfter: validAfter,
@@ -330,7 +345,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         // Enable session key
         _enableSessionKey(address(scw));
         // Claim tokens by solver
-        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        _claimTokensBySolver(eoa, scw, sessionKey, amounts[0], amounts[1], amounts[2]);
         // Expect emit a session key disabled event
         vm.expectEmit(true, true, false, false);
         emit ICredibleAccountModule.CredibleAccountModule_SessionKeyDisabled(sessionKey.pub, address(scw));
@@ -340,7 +355,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
 
     // Test: Verify that a session key can be disabled after it expires
     // regardless of whether tokens are locked
-    function test_disableSessionKey_WithLockedTokens_AfterSessionExpires() public withRequiredModules {
+    function test_disableSessionKey_withLockedTokens_afterSessionExpires() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
         // Warp to a time after the session key has expired
@@ -353,7 +368,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     }
 
     // Test: Disabling a session key when tokens aren't claimed reverts
-    function test_disableSessionKey_RevertIf_TokensNotClaimed() public withRequiredModules {
+    function test_disableSessionKey_revertIf_tokensNotClaimed() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
         // Attempt to disable the session key
@@ -383,7 +398,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     }
 
     // Test: Should return default values for non-existant session key
-    function test_getSessionKeyData_NonExistantSession_ReturnsDefaultValues() public withRequiredModules {
+    function test_getSessionKeyData_nonExistantSession_returnsDefaultValues() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
         SessionData memory sessionData = cam.getSessionKeyData(otherSessionKey.pub);
@@ -428,7 +443,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         newTokenData[0] = TokenData(address(usdc), 10e6);
         bytes memory rl = abi.encode(
             ResourceLock({
-                chainId: 42161,
+                chainId: block.chainid,
                 smartWallet: address(scw),
                 sessionKey: otherSessionKey.pub,
                 validAfter: validAfter,
@@ -462,7 +477,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         newTokenData[3] = TokenData(address(weth), newAmounts[3]);
         bytes memory rl = abi.encode(
             ResourceLock({
-                chainId: 42161,
+                chainId: block.chainid,
                 smartWallet: address(scw),
                 sessionKey: otherSessionKey.pub,
                 validAfter: validAfter,
@@ -492,7 +507,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         vm.stopPrank();
     }
 
-    function test_enableSessionKey_ViaUserOp() public withRequiredModules {
+    function test_enableSessionKey_viaUserOp() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
         // Enable another session key
@@ -506,7 +521,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         }
         bytes memory rl = abi.encode(
             ResourceLock({
-                chainId: 42161,
+                chainId: block.chainid,
                 smartWallet: address(scw),
                 sessionKey: otherSessionKey.pub,
                 validAfter: validAfter,
@@ -522,7 +537,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         // Encode the session data
         bytes memory newRl = abi.encode(
             ResourceLock({
-                chainId: 42161,
+                chainId: block.chainid,
                 smartWallet: address(scw),
                 sessionKey: 0xB071527c3721215A46958d172A42E7E3BDd1DF46,
                 validAfter: uint48(1729743735),
@@ -555,17 +570,17 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     }
 
     // Test: Claimed session should return true
-    function test_isSessionClaimed_True() public withRequiredModules {
+    function test_isSessionClaimed_true() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
         // Claim all tokens by solver
-        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        _claimTokensBySolver(eoa, scw, sessionKey, amounts[0], amounts[1], amounts[2]);
         assertTrue(cam.isSessionClaimed(sessionKey.pub));
         vm.stopPrank();
     }
 
     // Test: Unclaimed session should return false
-    function test_isSessionClaimed_False() public withRequiredModules {
+    function test_isSessionClaimed_false() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
         assertFalse(cam.isSessionClaimed(sessionKey.pub));
@@ -573,7 +588,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     }
 
     // Test: Should return true on validator
-    function test_isModuleType_Validator_True() public withRequiredModules {
+    function test_isModuleType_validator_true() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
         assertTrue(cam.isModuleType(1));
@@ -581,7 +596,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     }
 
     // Test: Should return true on hook
-    function test_isModuleType_Hook_True() public withRequiredModules {
+    function test_isModuleType_hook_true() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
         assertTrue(cam.isModuleType(4));
@@ -589,7 +604,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     }
 
     // Test: isValidSignatureWithSender should return success for valid signature
-    function test_isValidSignatureWithSender_ValidSignature() public {
+    function test_isValidSignatureWithSender_validSignature() public {
         // Create a test hash to sign
         bytes32 testHash = keccak256("test message");
         // Sign the hash with sessionKey
@@ -601,7 +616,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     }
 
     // Test: isValidSignatureWithSender should fail when signer doesn't match sender
-    function test_isValidSignatureWithSender_RevertWhen_SignerMismatch() public {
+    function test_isValidSignatureWithSender_revertWhen_signerMismatch() public {
         // Create a test hash to sign
         bytes32 testHash = keccak256("test message");
         bytes memory signature = _ethSign(testHash, alice);
@@ -612,11 +627,11 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     }
 
     // Test: claiming all tokens (batch)
-    function test_claimingTokens_Batch() public withRequiredModules {
+    function test_claimingTokens_batch() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
         // Claim all tokens by solver
-        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        _claimTokensBySolver(eoa, scw, sessionKey, amounts[0], amounts[1], amounts[2]);
         // Check tokens are unlocked
         assertTrue(cam.isSessionClaimed(sessionKey.pub));
         vm.stopPrank();
@@ -624,7 +639,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
 
     // Test: claiming tokens with an amount
     // that exceeds the locked amount fails (batch)
-    function test_claimingTokens_Batch_RevertIf_ClaimExceedsLocked() public withRequiredModules {
+    function test_claimingTokens_batch_revertIf_claimExceedsLocked() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
         // Set up calldata batch
@@ -650,7 +665,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     // Test: Should revert if the session key is expired
     // no tokens claimed yet
     // and solver tried to claim tokens
-    function test_claimingTokens_Batch_RevertIf_SessionKeyExpired() public withRequiredModules {
+    function test_claimingTokens_batch_revertIf_sessionKeyExpired() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
         // Warp time to expire the session key
@@ -676,7 +691,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
 
     // Test: Should revert if claiming tokens by solver
     // that dont match locked amounts
-    function test_claimingTokens_DoesNotMatchLockedAmounts() public withRequiredModules {
+    function test_claimingTokens_batch_revertIf_doesNotMatchLockedAmounts() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
         // Claim tokens by solver that dont match locked amounts
@@ -700,7 +715,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
 
     // Test: ERC20 transaction using amount that exceeds the
     // available unlocked balance fails (single)
-    function test_transactingLockedTokens_Single_RevertIf_NotEnoughUnlockedBalance() public withRequiredModules {
+    function test_transactingLockedTokens_single_revertIf_notEnoughUnlockedBalance() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
         // Mint extra tokens to wallet
@@ -723,7 +738,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
 
     // Test: ERC20 transaction using amount that exceeds the
     // available unlocked balance fails (batch)
-    function test_transactingLockedTokens_Batch_RevertIf_OtherValidator() public withRequiredModules {
+    function test_transactingLockedTokens_batch_revertIf_notEnoughUnlockedBalance() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
         // Mint extra tokens to wallet
@@ -753,7 +768,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
 
     // Test: Uniswap V2 swap transaction using amount that exceeds the
     // available unlocked balance fails (single)
-    function test_transactingLockedTokens_Complex_RevertIf_NotEnoughUnlockedBalance_singleExecute()
+    function test_transactingLockedTokens_complex_revertIf_notEnoughUnlockedBalance_singleExecute()
         public
         withRequiredModules
     {
@@ -843,7 +858,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         }
         bytes memory anotherRl = abi.encode(
             ResourceLock({
-                chainId: 42161,
+                chainId: block.chainid,
                 smartWallet: address(scw),
                 sessionKey: otherSessionKey.pub,
                 validAfter: validAfter,
@@ -975,7 +990,8 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         vm.startPrank(address(scw));
         SessionData memory sessionDataBefore = cam.getSessionKeyData(sessionKey.pub);
         assertGt(sessionDataBefore.validUntil, 0, "Session key should be active before test");
-        // Alice should be able to disable the session key (with locked tokens)
+        // Alice should be able to disable the session key (with claimed tokens)
+        _claimTokensBySolver(eoa, scw, sessionKey, amounts[0], amounts[1], amounts[2]);
         vm.stopPrank();
         vm.startPrank(alice.pub);
         vm.expectEmit(true, true, false, false);
@@ -989,7 +1005,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     function test_disableSessionKey_walletOwnerCanDisable() public withRequiredModules {
         _enableSessionKey(address(scw));
         // Claim all tokens by solver
-        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        _claimTokensBySolver(eoa, scw, sessionKey, amounts[0], amounts[1], amounts[2]);
         // Wallet owner should be able to disable their own session key
         vm.expectEmit(true, true, false, false);
         emit ICredibleAccountModule.CredibleAccountModule_SessionKeyDisabled(sessionKey.pub, address(scw));
@@ -1003,7 +1019,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     function test_disableSessionKey_revertWhen_unauthorized() public withRequiredModules {
         _enableSessionKey(address(scw));
         // Claim all tokens by solver
-        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        _claimTokensBySolver(eoa, scw, sessionKey, amounts[0], amounts[1], amounts[2]);
         // Unauthorized user should not be able to disable session key
         vm.stopPrank();
         vm.prank(alice.pub);
@@ -1022,7 +1038,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         }
         bytes memory rl = abi.encode(
             ResourceLock({
-                chainId: 42161,
+                chainId: block.chainid,
                 smartWallet: address(scw),
                 sessionKey: otherSessionKey.pub,
                 validAfter: validAfter,
@@ -1033,7 +1049,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         );
         cam.enableSessionKey(rl);
         // Claim all tokens for both session keys
-        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        _claimTokensBySolver(eoa, scw, sessionKey, amounts[0], amounts[1], amounts[2]);
         // Batch disable session keys
         address[] memory sessionKeys = new address[](2);
         sessionKeys[0] = sessionKey.pub;
@@ -1064,7 +1080,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     function test_batchDisableSessionKeys_skipsNonExistentKeys() public withRequiredModules {
         _enableSessionKey(address(scw));
         // Claim all tokens
-        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        _claimTokensBySolver(eoa, scw, sessionKey, amounts[0], amounts[1], amounts[2]);
         // Create array with valid and invalid session keys
         address[] memory sessionKeys = new address[](2);
         sessionKeys[0] = sessionKey.pub; // Valid
@@ -1138,7 +1154,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         }
         bytes memory rl = abi.encode(
             ResourceLock({
-                chainId: 42161,
+                chainId: block.chainid,
                 smartWallet: address(scw2),
                 sessionKey: otherSessionKey.pub,
                 validAfter: validAfter,
@@ -1155,7 +1171,8 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         cam.grantSessionKeyDisablerRole(bob.pub);
         vm.stopPrank();
         // Claim tokens for both session keys to make them disableable
-        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        _claimTokensBySolver(eoa, scw, sessionKey, amounts[0], amounts[1], amounts[2]);
+        _claimTokensBySolver(alice, scw2, otherSessionKey, amounts[0], amounts[1], amounts[2]);
         // Alice disables first session key
         vm.prank(alice.pub);
         cam.disableSessionKey(sessionKey.pub);
@@ -1200,7 +1217,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         }
         bytes memory rl2 = abi.encode(
             ResourceLock({
-                chainId: 42161,
+                chainId: block.chainid,
                 smartWallet: address(scw),
                 sessionKey: otherSessionKey.pub,
                 validAfter: validAfter,
@@ -1214,7 +1231,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         User memory thirdSessionKey = _createUser("Third Session Key");
         bytes memory rl3 = abi.encode(
             ResourceLock({
-                chainId: 42161,
+                chainId: block.chainid,
                 smartWallet: address(scw),
                 sessionKey: thirdSessionKey.pub,
                 validAfter: validAfter,
@@ -1225,7 +1242,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         );
         cam.enableSessionKey(rl3);
         // Claim tokens for first session key only
-        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        _claimTokensBySolver(eoa, scw, sessionKey, amounts[0], amounts[1], amounts[2]);
         // Warp time to expire second session key
         vm.warp(block.timestamp + 150);
         // Batch disable all session keys
@@ -1308,7 +1325,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         address mappedWallet = cam.sessionKeyToWallet(sessionKey.pub);
         assertEq(mappedWallet, address(scw), "Session key should be mapped to wallet");
         // Claim tokens and disable
-        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        _claimTokensBySolver(eoa, scw, sessionKey, amounts[0], amounts[1], amounts[2]);
         cam.disableSessionKey(sessionKey.pub);
         // Verify mapping is cleaned up
         mappedWallet = cam.sessionKeyToWallet(sessionKey.pub);
@@ -1329,13 +1346,17 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         _enableSessionKey(address(scw));
         vm.stopPrank();
         // Create second wallet
-        ModularEtherspotWallet scw2 = _createSCW(alice.pub);
-        _installModule(alice.pub, scw2, MODULE_TYPE_VALIDATOR, address(moecdsav), hex"");
+        User memory differentOwner = _createUser("Different Owner");
+        ModularEtherspotWallet scw2 = _createSCW(differentOwner.pub);
+        _installModule(differentOwner.pub, scw2, MODULE_TYPE_VALIDATOR, address(moecdsav), hex"");
         _installHookViaMultiplexer(scw2, address(cam), HookType.GLOBAL);
-        _installModule(alice.pub, scw2, MODULE_TYPE_VALIDATOR, address(cam), abi.encode(MODULE_TYPE_VALIDATOR));
+        _installModule(differentOwner.pub, scw2, MODULE_TYPE_VALIDATOR, address(cam), abi.encode(MODULE_TYPE_VALIDATOR));
         usdc.mint(address(scw2), amounts[0]);
         dai.mint(address(scw2), amounts[1]);
         usdt.mint(address(scw2), amounts[2]);
+        console.log("USDC balance of scw2:", usdc.balanceOf(address(scw2)));
+        console.log("DAI balance of scw2:", dai.balanceOf(address(scw2)));
+        console.log("USDT balance of scw2:", usdt.balanceOf(address(scw2)));
         // Enable session key from second wallet
         vm.startPrank(address(scw2));
         TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
@@ -1344,7 +1365,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         }
         bytes memory rl = abi.encode(
             ResourceLock({
-                chainId: 42161,
+                chainId: block.chainid,
                 smartWallet: address(scw2),
                 sessionKey: otherSessionKey.pub,
                 validAfter: validAfter,
@@ -1359,7 +1380,12 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         vm.startPrank(deployer.pub);
         cam.grantSessionKeyDisablerRole(alice.pub);
         // Claim tokens for both session keys
-        _claimTokensBySolver(eoa, scw, amounts[0], amounts[1], amounts[2]);
+        _claimTokensBySolver(eoa, scw, sessionKey, amounts[0], amounts[1], amounts[2]);
+        console.log("scw address:", address(scw));
+        console.log("scw2 address:", address(scw2));
+        console.log("About to claim tokens for scw2...");
+
+        _claimTokensBySolver(differentOwner, scw2, otherSessionKey, amounts[0], amounts[1], amounts[2]);
         // Alice should be able to disable both session keys
         vm.stopPrank();
         vm.startPrank(alice.pub);
@@ -1370,5 +1396,346 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         SessionData memory sessionData2 = cam.getSessionKeyData(otherSessionKey.pub);
         assertEq(sessionData1.validUntil, 0, "First session key should be disabled");
         assertEq(sessionData2.validUntil, 0, "Second session key should be disabled");
+    }
+
+    // Test: claiming tokens with an amount
+    // for a session key that has already been claimed
+    function test_claimingTokens_batch_revertIf_alreadyClaimed() public withRequiredModules {
+        // Enable session key
+        _enableSessionKey(address(scw));
+        // Set up calldata batch
+        bytes memory usdcData = _createTokenTransferExecution(solver.pub, amounts[0]);
+        bytes memory daiData = _createTokenTransferExecution(solver.pub, amounts[1]);
+        bytes memory usdtData = _createTokenTransferExecution(solver.pub, amounts[2]);
+        Execution[] memory batch = new Execution[](3);
+        batch[0] = Execution({target: address(usdc), value: 0, callData: usdcData});
+        batch[1] = Execution({target: address(dai), value: 0, callData: daiData});
+        batch[2] = Execution({target: address(usdt), value: 0, callData: usdtData});
+        bytes memory opCalldata =
+            abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch)));
+        (PackedUserOperation memory op,) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldata);
+        _executeUserOp(op);
+        // Try and claim already claimed tokens again
+        // Expect the operation to revert due to signature error
+        // (claiming exceeds locked)
+        (PackedUserOperation memory secondClaimOp,) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldata);
+        _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
+        // Attempt to execute the user operation
+        _executeUserOp(secondClaimOp);
+        vm.stopPrank();
+    }
+
+    function test_claimingTokens_batch_asOrchestrator() public withRequiredModules {
+        // Enable session key
+        _enableSessionKey(address(scw));
+        // Set up calldata batch
+        User memory orchestrator = _createUser("Orchestrator");
+        vm.startPrank(orchestrator.pub);
+        bytes memory usdcData = _createTokenTransferExecution(solver.pub, amounts[0]);
+        bytes memory daiData = _createTokenTransferExecution(solver.pub, amounts[1]);
+        bytes memory usdtData = _createTokenTransferExecution(solver.pub, amounts[2]);
+        Execution[] memory batch = new Execution[](3);
+        batch[0] = Execution({target: address(usdc), value: 0, callData: usdcData});
+        batch[1] = Execution({target: address(dai), value: 0, callData: daiData});
+        batch[2] = Execution({target: address(usdt), value: 0, callData: usdtData});
+        bytes memory opCalldata =
+            abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch)));
+        (PackedUserOperation memory op,) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldata);
+        _executeUserOp(op);
+        vm.stopPrank();
+    }
+
+    /// @notice Tests that enableSessionKey reverts when smartWallet doesn't match msg.sender
+    /// @dev Verifies the CredibleAccountModule_InvalidWallet error is thrown for mismatched wallet addresses
+    function test_enableSessionKey_revertIf_invalidWallet() public withRequiredModules {
+        TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
+        for (uint256 i; i < tokens.length; ++i) {
+            tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
+        }
+
+        // Create ResourceLock with different smartWallet address
+        address wrongWallet = makeAddr("wrongWallet");
+        bytes memory rl = abi.encode(
+            ResourceLock({
+                chainId: block.chainid,
+                smartWallet: wrongWallet, // Different from msg.sender (scw)
+                sessionKey: sessionKey.pub,
+                validAfter: validAfter,
+                validUntil: validUntil,
+                bidHash: DUMMY_BID_HASH,
+                tokenData: tokenAmounts
+            })
+        );
+
+        // Attempt to enable the session key - should revert
+        _toRevert(CAM.CredibleAccountModule_InvalidWallet.selector, abi.encode(wrongWallet, address(scw)));
+        cam.enableSessionKey(rl);
+        vm.stopPrank();
+    }
+
+    /// @notice Tests that enableSessionKey reverts when session key already exists
+    /// @dev Verifies the CredibleAccountModule_SessionKeyAlreadyExists error is thrown for duplicate session keys
+    function test_enableSessionKey_revertIf_sessionKeyAlreadyExists() public withRequiredModules {
+        // First, enable a session key successfully
+        _enableSessionKey(address(scw));
+
+        // Verify session key is enabled
+        assertEq(cam.getSessionKeysByWallet().length, 1, "Session key should be enabled");
+
+        // Try to enable the same session key again
+        TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
+        for (uint256 i; i < tokens.length; ++i) {
+            tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
+        }
+
+        bytes memory rl = abi.encode(
+            ResourceLock({
+                chainId: block.chainid,
+                smartWallet: address(scw),
+                sessionKey: sessionKey.pub, // Same session key as before
+                validAfter: validAfter,
+                validUntil: validUntil,
+                bidHash: DUMMY_BID_HASH,
+                tokenData: tokenAmounts
+            })
+        );
+
+        // Attempt to enable the same session key again - should revert
+        _toRevert(CAM.CredibleAccountModule_SessionKeyAlreadyExists.selector, abi.encode(sessionKey.pub));
+        cam.enableSessionKey(rl);
+        vm.stopPrank();
+    }
+
+    /// @notice Tests that enableSessionKey reverts when chainId doesn't match current chain
+    /// @dev Verifies the CredibleAccountModule_InvalidChainId error is thrown for wrong chain ID
+    function test_enableSessionKey_revertIf_invalidChainId() public withRequiredModules {
+        TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
+        for (uint256 i; i < tokens.length; ++i) {
+            tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
+        }
+
+        // Create ResourceLock with wrong chainId
+        uint256 wrongChainId = block.chainid + 1;
+        bytes memory rl = abi.encode(
+            ResourceLock({
+                chainId: wrongChainId, // Wrong chain ID
+                smartWallet: address(scw),
+                sessionKey: sessionKey.pub,
+                validAfter: validAfter,
+                validUntil: validUntil,
+                bidHash: DUMMY_BID_HASH,
+                tokenData: tokenAmounts
+            })
+        );
+
+        // Attempt to enable the session key - should revert
+        _toRevert(CAM.CredibleAccountModule_InvalidChainId.selector, abi.encode(wrongChainId));
+        cam.enableSessionKey(rl);
+        vm.stopPrank();
+    }
+
+    /// @notice Tests that enableSessionKey succeeds when chainId is zero (wildcard)
+    /// @dev Verifies that chainId = 0 is allowed as a wildcard for any chain
+    function test_enableSessionKey_succeedsWhen_chainIdIsZero() public withRequiredModules {
+        TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
+        for (uint256 i; i < tokens.length; ++i) {
+            tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
+        }
+
+        // Create ResourceLock with chainId = 0 (wildcard)
+        bytes memory rl = abi.encode(
+            ResourceLock({
+                chainId: 0, // Wildcard chain ID
+                smartWallet: address(scw),
+                sessionKey: sessionKey.pub,
+                validAfter: validAfter,
+                validUntil: validUntil,
+                bidHash: DUMMY_BID_HASH,
+                tokenData: tokenAmounts
+            })
+        );
+
+        // Expect success event
+        vm.expectEmit(true, true, false, false);
+        emit ICredibleAccountModule.CredibleAccountModule_SessionKeyEnabled(sessionKey.pub, address(scw));
+
+        // Enable session key - should succeed
+        cam.enableSessionKey(rl);
+
+        // Verify session key was enabled
+        assertEq(cam.getSessionKeysByWallet().length, 1, "Session key should be enabled");
+        vm.stopPrank();
+    }
+
+    /// @notice Tests that enableSessionKey reverts when token data exceeds maximum allowed
+    /// @dev Verifies the CredibleAccountModule_MaxLockedTokensReached error is thrown for too many tokens
+    function test_enableSessionKey_revertIf_maxLockedTokensReached() public withRequiredModules {
+        // Create token data array that exceeds MAX_LOCKED_TOKENS (5)
+        uint256 excessiveTokenCount = 6; // MAX_LOCKED_TOKENS is 5
+        TokenData[] memory excessiveTokenAmounts = new TokenData[](excessiveTokenCount);
+
+        for (uint256 i; i < excessiveTokenCount; ++i) {
+            // Create dummy token addresses
+            excessiveTokenAmounts[i] = TokenData(address(uint160(i + 1)), 100e18);
+        }
+
+        bytes memory rl = abi.encode(
+            ResourceLock({
+                chainId: block.chainid,
+                smartWallet: address(scw),
+                sessionKey: sessionKey.pub,
+                validAfter: validAfter,
+                validUntil: validUntil,
+                bidHash: DUMMY_BID_HASH,
+                tokenData: excessiveTokenAmounts // Too many tokens
+            })
+        );
+
+        // Attempt to enable the session key - should revert
+        _toRevert(CAM.CredibleAccountModule_MaxLockedTokensReached.selector, abi.encode(sessionKey.pub));
+        cam.enableSessionKey(rl);
+        vm.stopPrank();
+    }
+
+    /// @notice Tests that enableSessionKey succeeds when token data equals maximum allowed
+    /// @dev Verifies that exactly MAX_LOCKED_TOKENS is allowed
+    function test_enableSessionKey_succeedsWhen_tokenDataEqualsMaximum() public withRequiredModules {
+        // Create token data array that equals MAX_LOCKED_TOKENS (5)
+        uint256 maxTokenCount = 5; // MAX_LOCKED_TOKENS is 5
+        TokenData[] memory maxTokenAmounts = new TokenData[](maxTokenCount);
+
+        for (uint256 i; i < maxTokenCount; ++i) {
+            // Create dummy token addresses
+            maxTokenAmounts[i] = TokenData(address(uint160(i + 1)), 100e18);
+        }
+
+        bytes memory rl = abi.encode(
+            ResourceLock({
+                chainId: block.chainid,
+                smartWallet: address(scw),
+                sessionKey: sessionKey.pub,
+                validAfter: validAfter,
+                validUntil: validUntil,
+                bidHash: DUMMY_BID_HASH,
+                tokenData: maxTokenAmounts // Exactly MAX_LOCKED_TOKENS
+            })
+        );
+
+        // Expect success event
+        vm.expectEmit(true, true, false, false);
+        emit ICredibleAccountModule.CredibleAccountModule_SessionKeyEnabled(sessionKey.pub, address(scw));
+
+        // Enable session key - should succeed
+        cam.enableSessionKey(rl);
+
+        // Verify session key was enabled
+        assertEq(cam.getSessionKeysByWallet().length, 1, "Session key should be enabled");
+
+        // Verify all tokens were locked
+        ICredibleAccountModule.LockedToken[] memory lockedTokens = cam.getLockedTokensForSessionKey(sessionKey.pub);
+        assertEq(lockedTokens.length, maxTokenCount, "All tokens should be locked");
+        vm.stopPrank();
+    }
+
+    /// @notice Tests that onUninstall reverts when sender mismatch occurs
+    /// @dev Verifies the CredibleAccountModule_SenderMismatch error is thrown when sender != msg.sender and msg.sender != hookMultiPlexer
+    function test_onUninstall_revertIf_senderMismatch() public withRequiredModules {
+        // Setup: Install module first
+        _enableSessionKey(address(scw));
+        vm.stopPrank();
+        // Create a different sender address (not the actual caller)
+        address differentSender = makeAddr("differentSender");
+        // Create uninstall data with different sender
+        bytes memory uninstallData = abi.encode(MODULE_TYPE_VALIDATOR, differentSender);
+        // Attempt to call onUninstall from scw (not hookMultiPlexer) with different sender
+        // This should trigger: sender != msg.sender && msg.sender != address(hookMultiPlexer)
+        vm.prank(address(scw));
+        _toRevert(CAM.CredibleAccountModule_SenderMismatch.selector, abi.encode(differentSender, address(scw)));
+        cam.onUninstall(uninstallData);
+    }
+
+    /// @notice Tests that validateUserOp reverts when validator module is not installed
+    /// @dev Verifies the CredibleAccountModule_ModuleNotInstalled error is thrown when validator is not initialized
+    function test_validateUserOp_RevertIf_ModuleNotInstalled() public {
+        // Setup: Create a wallet but don't install the validator module
+        address uninitializedWallet = makeAddr("uninitializedWallet");
+        // Create a basic UserOp for the uninitialized wallet
+        PackedUserOperation memory userOp = PackedUserOperation({
+            sender: uninitializedWallet,
+            nonce: 0,
+            initCode: "",
+            callData: "",
+            accountGasLimits: bytes32(abi.encodePacked(uint128(2000000), uint128(2000000))),
+            preVerificationGas: 100000,
+            gasFees: bytes32(abi.encodePacked(uint128(1000000000), uint128(1000000000))),
+            paymasterAndData: "",
+            signature: new bytes(65) // Valid length signature
+        });
+        bytes32 userOpHash = keccak256("dummy-hash");
+        // Attempt to validate from uninitialized wallet - should revert
+        vm.prank(uninitializedWallet);
+        _toRevert(CAM.CredibleAccountModule_ModuleNotInstalled.selector, abi.encode(uninitializedWallet));
+        cam.validateUserOp(userOp, userOpHash);
+    }
+
+    /// @notice Tests that validateUserOp reverts when msg.sender doesn't match userOp.sender
+    /// @dev Verifies the CredibleAccountModule_InvalidCaller error is thrown for caller mismatch
+    function test_validateUserOp_RevertIf_InvalidCaller() public withRequiredModules {
+        // Setup: Install module and create session key
+        _enableSessionKey(address(scw));
+        vm.stopPrank();
+        // Create a different wallet address
+        address differentWallet = makeAddr("differentWallet");
+        // Create UserOp with differentWallet as sender
+        PackedUserOperation memory userOp = PackedUserOperation({
+            sender: differentWallet, // Different from msg.sender (scw)
+            nonce: 0,
+            initCode: "",
+            callData: "",
+            accountGasLimits: bytes32(abi.encodePacked(uint128(2000000), uint128(2000000))),
+            preVerificationGas: 100000,
+            gasFees: bytes32(abi.encodePacked(uint128(1000000000), uint128(1000000000))),
+            paymasterAndData: "",
+            signature: new bytes(65) // Valid length signature
+        });
+        bytes32 userOpHash = keccak256("dummy-hash");
+        // Attempt to validate from scw but with differentWallet as userOp.sender - should revert
+        vm.prank(address(scw));
+        _toRevert(CAM.CredibleAccountModule_InvalidCaller.selector, hex"");
+        cam.validateUserOp(userOp, userOpHash);
+    }
+
+    /// @notice Tests that validateUserOp reverts when hook is installed but validator is not
+    /// @dev Verifies that having only hook module installed is not sufficient for validation
+    function test_validateUserOp_RevertIf_OnlyHookInstalled() public {
+        // Setup: Install only hook module (not validator)
+        // Create a wallet and install only hook module
+        address hookOnlyWallet = makeAddr("hookOnlyWallet");
+        // Manually set hook as initialized but not validator
+        vm.store(
+            address(cam),
+            keccak256(abi.encode(hookOnlyWallet, uint256(0))), // moduleInitialized mapping slot
+            bytes32(uint256(1)) // hookInitialized = true, validatorInitialized = false
+        );
+        // Create UserOp for the hook-only wallet
+        PackedUserOperation memory userOp = PackedUserOperation({
+            sender: hookOnlyWallet,
+            nonce: 0,
+            initCode: "",
+            callData: "",
+            accountGasLimits: bytes32(abi.encodePacked(uint128(2000000), uint128(2000000))),
+            preVerificationGas: 100000,
+            gasFees: bytes32(abi.encodePacked(uint128(1000000000), uint128(1000000000))),
+            paymasterAndData: "",
+            signature: new bytes(65) // Valid length signature
+        });
+        bytes32 userOpHash = keccak256("dummy-hash");
+        // Attempt to validate from hook-only wallet - should revert
+        vm.prank(hookOnlyWallet);
+        _toRevert(CAM.CredibleAccountModule_ModuleNotInstalled.selector, abi.encode(hookOnlyWallet));
+        cam.validateUserOp(userOp, userOpHash);
     }
 }

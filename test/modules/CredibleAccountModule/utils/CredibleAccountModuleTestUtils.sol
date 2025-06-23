@@ -55,7 +55,7 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
         _testInit();
         solver = _createUser("Solver");
         otherSessionKey = _createUser("Other Session Key");
-        harness = new CredibleAccountModuleHarness(address(hmp));
+        harness = new CredibleAccountModuleHarness(deployer.pub, address(hmp));
         vm.startPrank(address(scw));
         // Set up test variables
         tokens = [address(usdc), address(dai), address(usdt)];
@@ -73,7 +73,7 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
             td[i] = TokenData(tokens[i], amounts[i]);
         }
         ResourceLock memory rl = ResourceLock({
-            chainId: 42161, // Arbitrum
+            chainId: block.chainid,
             smartWallet: _scw,
             sessionKey: sessionKey.pub,
             validAfter: validAfter,
@@ -109,23 +109,19 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
         PackedUserOperation memory op = _createUserOp(_scw, _validator);
         op.callData = _callData;
         bytes32 hash = entrypoint.getUserOpHash(op);
-        bytes memory sig = _ethSign(hash, _user);
-        if (_validator == address(cam)) {
-            bytes memory proofSig = abi.encodePacked(sig, PROOF);
-            op.signature = proofSig;
-            return (op, hash);
-        }
-        op.signature = sig;
+        op.signature = _ethSign(hash, _user);
         return (op, hash);
     }
 
     function _claimTokensBySolver(
         User memory _user,
         ModularEtherspotWallet _scw,
+        User memory _sessionKey,
         uint256 _usdc,
         uint256 _dai,
         uint256 _usdt
     ) internal {
+        console.log("_claimTokensBySolver called with wallet:", address(_scw));
         bytes memory usdcData = _createTokenTransferExecution(solver.pub, _usdc);
         bytes memory daiData = _createTokenTransferExecution(solver.pub, _dai);
         bytes memory usdtData = _createTokenTransferExecution(solver.pub, _usdt);
@@ -136,7 +132,7 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
         bytes memory opCalldata =
             abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch)));
         (PackedUserOperation memory op,) =
-            _createUserOpWithSignature(sessionKey, address(_scw), address(cam), opCalldata);
+            _createUserOpWithSignature(_sessionKey, address(_scw), address(cam), opCalldata);
         // Execute the user operation
         _executeUserOp(op);
     }

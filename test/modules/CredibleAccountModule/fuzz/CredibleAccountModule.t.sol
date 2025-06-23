@@ -51,7 +51,7 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         }
         bytes memory rl = abi.encode(
             ResourceLock({
-                chainId: 42161,
+                chainId: block.chainid,
                 smartWallet: address(scw),
                 sessionKey: sk.pub,
                 validAfter: _validAfter,
@@ -94,7 +94,7 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         }
         bytes memory rl = abi.encode(
             ResourceLock({
-                chainId: 42161,
+                chainId: block.chainid,
                 smartWallet: address(scw),
                 sessionKey: sk.pub,
                 validAfter: validAfter,
@@ -133,26 +133,6 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         vm.stopPrank();
     }
 
-    function testFuzz_validateSessionKeyParams(address _sessionKey, bytes calldata _callData)
-        public
-        withRequiredModules
-    {
-        vm.assume(_sessionKey != address(0));
-        // Enable a session key first
-        _enableSessionKey(address(scw));
-        PackedUserOperation memory op;
-        op.callData = _callData;
-        op.sender = address(scw);
-        bool isValid = cam.validateSessionKeyParams(_sessionKey, op);
-        if (_sessionKey == sessionKey.pub) {
-            // Additional checks based on _callData content could be added here
-            assertTrue(isValid || !isValid);
-        } else {
-            assertFalse(isValid);
-        }
-        vm.stopPrank();
-    }
-
     function testFuzz_claimingTokensBySolver(uint256[3] memory _claimAmounts) public withRequiredModules {
         for (uint256 i; i < _claimAmounts.length; ++i) {
             vm.assume(_claimAmounts[i] > 0 && _claimAmounts[i] < 1000 ether);
@@ -167,7 +147,7 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         }
         bytes memory rl = abi.encode(
             ResourceLock({
-                chainId: 42161,
+                chainId: block.chainid,
                 smartWallet: address(scw),
                 sessionKey: sessionKey.pub,
                 validAfter: validAfter,
@@ -178,7 +158,7 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         );
         cam.enableSessionKey(rl);
         // Claim tokens by solver
-        _claimTokensBySolver(eoa, scw, _claimAmounts[0], _claimAmounts[1], _claimAmounts[2]);
+        _claimTokensBySolver(eoa, scw, sessionKey, _claimAmounts[0], _claimAmounts[1], _claimAmounts[2]);
         // Verify tokens have been claimed
         ICAM.LockedToken[] memory lockedTokens = cam.getLockedTokensForSessionKey(sessionKey.pub);
         for (uint256 i; i < 3; ++i) {

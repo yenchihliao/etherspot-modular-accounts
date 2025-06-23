@@ -146,8 +146,8 @@ contract ModularTestBase is BootstrapUtil, Test {
         skv = new SessionKeyValidator();
         erc1155fb = new ERC1155FallbackHandler();
         hmp = new HookMultiPlexer();
-        cam = new CredibleAccountModule(address(hmp));
-        rlv = new ResourceLockValidator();
+        cam = new CredibleAccountModule(deployer.pub, address(hmp));
+        rlv = new ResourceLockValidator(address(cam));
         vm.label({account: address(impl), newLabel: "ModularEtherspotWallet"});
         vm.label({account: address(factory), newLabel: "ModularEtherspotWalletFactory"});
         vm.label({account: address(moecdsav), newLabel: "MultipleOwnerECDSAValidator"});
@@ -291,22 +291,28 @@ contract ModularTestBase is BootstrapUtil, Test {
         SigHookInit[] memory sigHooks = new SigHookInit[](0);
         SigHookInit[] memory targetSigHooks = new SigHookInit[](0);
         bytes memory hmpData = abi.encode(globalHooks, valueHooks, delegatecallHooks, sigHooks, targetSigHooks);
+
         // Create config for initial modules
         BootstrapConfig[] memory validators = new BootstrapConfig[](1);
         validators[0] = _makeBootstrapConfig(address(mockVal), "");
         BootstrapConfig[] memory executors = makeBootstrapConfig(address(mockExec), "");
         BootstrapConfig memory hook = _makeBootstrapConfig(address(hmp), hmpData);
         BootstrapConfig[] memory fallbacks = makeBootstrapConfig(address(0), "");
+
         bytes memory _initCode = abi.encode(
             _owner,
             address(bootstrapSingleton),
             abi.encodeCall(bootstrapSingleton.initMSA, (validators, executors, hook, fallbacks))
         );
+
         vm.startPrank(_owner);
-        scw = ModularEtherspotWallet(payable(factory.createAccount({salt: TEST_SALT, initCode: _initCode})));
-        vm.deal(address(scw), 100 ether);
+        bytes32 uniqueSalt = keccak256(abi.encodePacked(TEST_SALT, _owner));
+        // Use a local variable instead of the global scw
+        ModularEtherspotWallet newWallet =
+            ModularEtherspotWallet(payable(factory.createAccount({salt: uniqueSalt, initCode: _initCode})));
+        vm.deal(address(newWallet), 100 ether);
         vm.stopPrank();
-        return scw;
+        return newWallet;
     }
 
     function _installModule(
@@ -341,7 +347,7 @@ contract ModularTestBase is BootstrapUtil, Test {
         bytes memory _deInitData
     ) internal returns (bool) {
         vm.startPrank(_owner);
-        if (_moduleType == MODULE_TYPE_FALLBACK) {
+        if (_moduleType == MODULE_TYPE_FALLBACK || _moduleType == MODULE_TYPE_HOOK) {
             mockExec.executeViaAccount(
                 IERC7579Account(_scw),
                 address(_scw),

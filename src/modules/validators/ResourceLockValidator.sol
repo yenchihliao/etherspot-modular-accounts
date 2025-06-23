@@ -8,6 +8,7 @@ import "ERC7579/interfaces/IERC7579Account.sol";
 import "ERC7579/libs/ModeLib.sol";
 import "ERC7579/libs/ExecutionLib.sol";
 import {IResourceLockValidator} from "../../interfaces/IResourceLockValidator.sol";
+import {ICredibleAccountModule} from "../../interfaces/ICredibleAccountModule.sol";
 import {ResourceLock, TokenData} from "../../common/Structs.sol";
 import {
     MODULE_TYPE_VALIDATOR,
@@ -23,6 +24,12 @@ contract ResourceLockValidator is IResourceLockValidator {
     using ExecutionLib for bytes;
 
     /*//////////////////////////////////////////////////////////////
+                              VARIABLES
+    //////////////////////////////////////////////////////////////*/
+
+    ICredibleAccountModule public immutable credibleAccountModule;
+
+    /*//////////////////////////////////////////////////////////////
                                STRUCTS
     //////////////////////////////////////////////////////////////*/
 
@@ -36,6 +43,7 @@ contract ResourceLockValidator is IResourceLockValidator {
     //////////////////////////////////////////////////////////////*/
 
     mapping(address => ValidatorStorage) public validatorStorage;
+    mapping(address wallet => mapping(bytes32 bidHash => bool consumed)) public consumedBidHash;
 
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
@@ -43,15 +51,29 @@ contract ResourceLockValidator is IResourceLockValidator {
 
     error RLV_AlreadyInstalled(address scw, address eoa);
     error RLV_NotInstalled(address scw);
+    error RLV_InvalidDataLength();
     error RLV_ResourceLockHashNotInProof();
-    error RLV_InvalidSelector();
+    error RLV_InvalidTarget(address target);
+    error RLV_InvalidSelector(bytes4 selector);
+    error RLV_NonZeroValue(uint256 value);
     error RLV_InvalidCallType();
+    error RLV_InvalidBatchLength(uint256 batchLength);
+    error RLV_BidHashAlreadyConsumed(bytes32 bidHash);
+
+    /*//////////////////////////////////////////////////////////////
+                             CONSTRUCTOR
+    //////////////////////////////////////////////////////////////*/
+
+    constructor(address _credibleAccountModule) {
+        credibleAccountModule = ICredibleAccountModule(_credibleAccountModule);
+    }
 
     /*//////////////////////////////////////////////////////////////
                       PUBLIC/EXTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
     function onInstall(bytes calldata _data) external override {
+        if (_data.length < 20) revert RLV_InvalidDataLength();
         address owner = address(bytes20(_data[_data.length - 20:]));
         if (validatorStorage[msg.sender].enabled) {
             revert RLV_AlreadyInstalled(msg.sender, validatorStorage[msg.sender].owner);
@@ -110,13 +132,18 @@ contract ResourceLockValidator is IResourceLockValidator {
         if (!MerkleProofLib.verify(proof, root, _buildResourceLockHash(rl))) {
             revert RLV_ResourceLockHashNotInProof();
         }
+        if (consumedBidHash[userOp.sender][rl.bidHash]) {
+            revert RLV_BidHashAlreadyConsumed(rl.bidHash);
+        }
         // check proof is signed
         if (walletOwner == ECDSA.recover(root, ecdsaSignature)) {
+            consumedBidHash[userOp.sender][rl.bidHash] = true;
             return SIG_VALIDATION_SUCCESS;
         }
         bytes32 sigRoot = ECDSA.toEthSignedMessageHash(root);
         address recoveredMSigner = ECDSA.recover(sigRoot, ecdsaSignature);
         if (walletOwner != recoveredMSigner) return SIG_VALIDATION_FAILED;
+        consumedBidHash[userOp.sender][rl.bidHash] = true;
         return SIG_VALIDATION_SUCCESS;
     }
 
@@ -198,7 +225,16 @@ contract ResourceLockValidator is IResourceLockValidator {
         if (bytes4(_callData[:4]) == IERC7579Account.execute.selector) {
             (CallType calltype,,,) = ModeLib.decode(ModeCode.wrap(bytes32(_callData[4:36])));
             if (calltype == CALLTYPE_SINGLE) {
-                (,, bytes calldata execData) = ExecutionLib.decodeSingle(_callData[100:]);
+                (address target, uint256 value, bytes calldata execData) = ExecutionLib.decodeSingle(_callData[100:]);
+                if (target != address(credibleAccountModule)) {
+                    revert RLV_InvalidTarget(target);
+                }
+                if (value != 0) {
+                    revert RLV_NonZeroValue(value);
+                }
+                if (bytes4(execData[:4]) != ICredibleAccountModule.enableSessionKey.selector) {
+                    revert RLV_InvalidSelector(bytes4(execData[:4]));
+                }
                 (uint256 arrayOffset, uint256 arrayLength) = _getArrayInfo(execData);
                 TokenData[] memory td = new TokenData[](arrayLength);
                 for (uint256 i; i < arrayLength; ++i) {
@@ -219,7 +255,17 @@ contract ResourceLockValidator is IResourceLockValidator {
                 // so hardcoded values will hold here
                 Execution[] calldata batchExecs = ExecutionLib.decodeBatch(_callData[100:]);
                 for (uint256 i; i < batchExecs.length; ++i) {
-                    if (bytes4(batchExecs[i].callData[:4]) == bytes4(0x495079a0)) {
+                    if (batchExecs.length != 1) {
+                        revert RLV_InvalidBatchLength(batchExecs.length);
+                    }
+                    if (batchExecs[0].target != address(credibleAccountModule)) {
+                        revert RLV_InvalidTarget(batchExecs[0].target);
+                    }
+                    if (batchExecs[0].value != 0) {
+                        revert RLV_NonZeroValue(batchExecs[0].value);
+                    }
+                    if (bytes4(batchExecs[i].callData[:4]) == bytes4(ICredibleAccountModule.enableSessionKey.selector))
+                    {
                         bytes calldata lockData = batchExecs[i].callData;
                         uint256 dataOffset = 68; // Skip function selector + 64 bytes
                         uint256 arrayStart = dataOffset + 256;
@@ -242,7 +288,7 @@ contract ResourceLockValidator is IResourceLockValidator {
                             tokenData: td
                         });
                     }
-                    revert RLV_InvalidSelector();
+                    revert RLV_InvalidSelector(bytes4(batchExecs[i].callData[:4]));
                 }
             } else {
                 revert RLV_InvalidCallType();

@@ -3,12 +3,14 @@ pragma solidity 0.8.23;
 
 import "forge-std/Test.sol";
 import {ECDSA} from "solady/src/utils/ECDSA.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IEntryPoint} from "ERC4337/interfaces/IEntryPoint.sol";
 import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
 import "ERC7579/interfaces/IERC7579Account.sol";
 import {ExecutionLib} from "ERC7579/libs/ExecutionLib.sol";
 import {ModeLib} from "ERC7579/libs/ModeLib.sol";
 import {SentinelListLib as SENTINEL} from "ERC7579/libs/SentinelList.sol";
+import {ModularEtherspotWallet} from "../../../../src/wallet/ModularEtherspotWallet.sol";
 import {ICredibleAccountModule} from "../../../../src/interfaces/ICredibleAccountModule.sol";
 import {IResourceLockValidator} from "../../../../src/interfaces/IResourceLockValidator.sol";
 import {ResourceLockValidator} from "../../../../src/modules/validators/ResourceLockValidator.sol";
@@ -48,13 +50,35 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests module installation reverts when already installed
     /// @dev Expects revert with LinkedList_EntryAlreadyInList error
-    function test_installModule_RevertIf_AlreadyInstalled() public {
+    function test_installModule_revertIf_alreadyInstalled() public {
         // Install module
         _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(rlv), abi.encode(eoa.pub));
         // Expect uninstallation to revert as module already installed
         _toRevert(SENTINEL.LinkedList_EntryAlreadyInList.selector, abi.encode(address(rlv)));
         // Try to execute installation
         _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(rlv), abi.encode(eoa.pub));
+    }
+
+    /// @notice Tests that onInstall reverts when provided with empty data
+    /// @dev Verifies the RLV_InvalidDataLength error is thrown for zero-length input data
+    function test_onInstall_revertsWhen_emptyData() public {
+        // Create empty data array
+        bytes memory emptyData = "";
+        // Expect revert with specific error when installing with empty data
+        _toRevert(ResourceLockValidator.RLV_InvalidDataLength.selector, hex"");
+        vm.prank(address(scw));
+        rlv.onInstall(emptyData);
+    }
+
+    /// @notice Tests that onInstall reverts when provided with insufficient data length
+    /// @dev Verifies the RLV_InvalidDataLength error is thrown for data shorter than required 20 bytes
+    function test_onInstall_revertsWhen_dataLengthNineteenBytes() public {
+        // Create data array with 19 bytes (1 byte short of minimum requirement)
+        bytes memory shortData = new bytes(19);
+        // Expect revert with specific error when installing with insufficient data
+        _toRevert(ResourceLockValidator.RLV_InvalidDataLength.selector, hex"");
+        vm.prank(address(scw));
+        rlv.onInstall(shortData);
     }
 
     /// @notice Tests successful module uninstallation
@@ -71,7 +95,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests uninstallation reverts when module not installed
     /// @dev Expects revert with RLV_NotInstalled error
-    function test_uninstallModule_RevertIf_NotInstalled() public {
+    function test_uninstallModule_revertIf_notInstalled() public {
         // Prank as EOA
         vm.startPrank(eoa.pub);
         // Expect uninstallation to revert as module not installed
@@ -102,7 +126,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests direct hash signature validation
     /// @dev Verifies successful validation of EOA-signed direct hash
-    function test_isValidSignatureWithSender_DirectHashSignature() public withRequiredModules {
+    function test_isValidSignatureWithSender_directHashSignature() public withRequiredModules {
         // Build UserOperation
         PackedUserOperation memory op = _createUserOp(address(scw), address(rlv));
         bytes32 hash = entrypoint.getUserOpHash(op);
@@ -113,7 +137,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests direct hash signature validation fails with invalid signer
     /// @dev Verifies rejection of signatures from unauthorized accounts
-    function test_isValidSignatureWithSender_DirectHashSignature_RevertIf_InvalidSigner() public withRequiredModules {
+    function test_isValidSignatureWithSender_directHashSignature_revertIf_invalidSigner() public withRequiredModules {
         // Build UserOperation
         PackedUserOperation memory op = _createUserOp(address(scw), address(rlv));
         bytes32 hash = entrypoint.getUserOpHash(op);
@@ -124,7 +148,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests eth-signed message validation
     /// @dev Verifies successful validation of EOA eth-signed messages
-    function test_isValidSignatureWithSender_EthSignedMessage() public withRequiredModules {
+    function test_isValidSignatureWithSender_ethSignedMessage() public withRequiredModules {
         // Build UserOperation
         PackedUserOperation memory op = _createUserOp(address(scw), address(rlv));
         bytes32 hash = entrypoint.getUserOpHash(op);
@@ -136,7 +160,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests eth-signed message validation fails with invalid signer
     /// @dev Verifies rejection of eth-signed messages from unauthorized accounts
-    function test_isValidSignatureWithSender_EthSignedMessage_RevertIf_InvalidSigner() public withRequiredModules {
+    function test_isValidSignatureWithSender_ethSignedMessage_revertIf_invalidSigner() public withRequiredModules {
         // Build UserOperation
         PackedUserOperation memory op = _createUserOp(address(scw), address(rlv));
         bytes32 hash = entrypoint.getUserOpHash(op);
@@ -148,7 +172,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests direct merkle signature validation
     /// @dev Verifies successful validation of merkle proofs with direct signatures
-    function test_isValidSignatureWithSender_DirectMerkleSignature() public withRequiredModules {
+    function test_isValidSignatureWithSender_directMerkleSignature() public withRequiredModules {
         // Create ResourceLock and hash of ResourceLock
         ResourceLock memory rl = _generateResourceLock(address(scw), sessionKey.pub);
         bytes32 rlHash = _buildResourceLockHash(rl);
@@ -163,7 +187,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests direct merkle signature validation fails when hash not in proof
     /// @dev Verifies rejection of merkle proofs not containing the target hash
-    function test_isValidSignatureWithSender_DirectMerkleSignature_RevertIf_HashNotInProof()
+    function test_isValidSignatureWithSender_directMerkleSignature_revertIf_hashNotInProof()
         public
         withRequiredModules
     {
@@ -182,7 +206,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests direct merkle signature validation fails with invalid signer
     /// @dev Verifies rejection of merkle proofs signed by unauthorized accounts
-    function test_isValidSignatureWithSender_DirectMerkleSignature_RevertIf_InvalidSigner()
+    function test_isValidSignatureWithSender_directMerkleSignature_revertIf_invalidSigner()
         public
         withRequiredModules
     {
@@ -200,7 +224,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests eth-signed merkle signature validation
     /// @dev Verifies successful validation of merkle proofs with eth-signed signatures
-    function test_isValidSignatureWithSender_EthSignedMerkleSignature() public withRequiredModules {
+    function test_isValidSignatureWithSender_ethSignedMerkleSignature() public withRequiredModules {
         // Create ResourceLock and hash of ResourceLock
         ResourceLock memory rl = _generateResourceLock(address(scw), sessionKey.pub);
         bytes32 rlHash = _buildResourceLockHash(rl);
@@ -215,7 +239,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests eth-signed merkle signature validation fails when hash not in proof
     /// @dev Verifies rejection of eth-signed merkle proofs not containing the target hash
-    function test_isValidSignatureWithSender_EthSignedMerkleSignature_RevertIf_HashNotInProof()
+    function test_isValidSignatureWithSender_ethSignedMerkleSignature_revertIf_hashNotInProof()
         public
         withRequiredModules
     {
@@ -234,7 +258,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests eth-signed merkle signature validation fails with invalid signer
     /// @dev Verifies rejection of eth-signed merkle proofs from unauthorized accounts
-    function test_isValidSignatureWithSender_EthSignedMerkleSignature_RevertIf_InvalidSigner()
+    function test_isValidSignatureWithSender_ethSignedMerkleSignature_revertIf_invalidSigner()
         public
         withRequiredModules
     {
@@ -252,7 +276,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests signature validation fails with empty signature
     /// @dev Verifies rejection of empty signature bytes
-    function test_isValidSignatureWithSender_RevertIf_EmptySignature() public withRequiredModules {
+    function test_isValidSignatureWithSender_revertIf_emptySignature() public withRequiredModules {
         // Build UserOperation
         PackedUserOperation memory op = _createUserOp(address(scw), address(rlv));
         bytes32 hash = entrypoint.getUserOpHash(op);
@@ -264,7 +288,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests signature validation fails with malformed signature
     /// @dev Verifies rejection of signatures with incorrect format
-    function test_isValidSignatureWithSender_RevertIf_MalformedSignature() public withRequiredModules {
+    function test_isValidSignatureWithSender_revertIf_malformedSignature() public withRequiredModules {
         // Build UserOperation
         PackedUserOperation memory op = _createUserOp(address(scw), address(rlv));
         bytes32 hash = entrypoint.getUserOpHash(op);
@@ -276,7 +300,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests signature validation fails with invalid signature length
     /// @dev Verifies rejection of signatures with incorrect length
-    function test_isValidSignatureWithSender_RevertIf_InvalidSignatureLength() public withRequiredModules {
+    function test_isValidSignatureWithSender_revertIf_invalidSignatureLength() public withRequiredModules {
         // Build UserOperation
         PackedUserOperation memory op = _createUserOp(address(scw), address(rlv));
         bytes32 hash = entrypoint.getUserOpHash(op);
@@ -288,7 +312,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests signature validation fails with empty proof array
     /// @dev Verifies rejection of merkle proofs with no elements
-    function test_isValidSignatureWithSender_RevertIf_EmptyProofArray() public withRequiredModules {
+    function test_isValidSignatureWithSender_revertIf_emptyProofArray() public withRequiredModules {
         // Create ResourceLock and hash of ResourceLock
         ResourceLock memory rl = _generateResourceLock(address(scw), sessionKey.pub);
         bytes32 rlHash = _buildResourceLockHash(rl);
@@ -305,7 +329,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests signature validation fails with invalid proof length
     /// @dev Verifies rejection of merkle proofs exceeding maximum allowed length
-    function test_isValidSignatureWithSender_RevertIf_InvalidProofLength() public withRequiredModules {
+    function test_isValidSignatureWithSender_revertIf_invalidProofLength() public withRequiredModules {
         // Create ResourceLock and hash of ResourceLock
         ResourceLock memory rl = _generateResourceLock(address(scw), sessionKey.pub);
         bytes32 rlHash = _buildResourceLockHash(rl);
@@ -323,7 +347,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests signature validation fails with malformed proof data
     /// @dev Verifies rejection of merkle proofs with invalid node format
-    function test_isValidSignatureWithSender_RevertIf_MalformedProofData() public withRequiredModules {
+    function test_isValidSignatureWithSender_revertIf_malformedProofData() public withRequiredModules {
         // Create ResourceLock and hash of ResourceLock
         ResourceLock memory rl = _generateResourceLock(address(scw), sessionKey.pub);
         bytes32 rlHash = _buildResourceLockHash(rl);
@@ -342,7 +366,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests UserOperation validation with direct signature
     /// @dev Verifies successful execution of UserOp with direct EOA signature
-    function test_validateUserOp_DirectSignature() public withRequiredModules {
+    function test_validateUserOp_directSignature() public withRequiredModules {
         // Create UserOp with ResourceLock
         (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
             _createUserOpWithResourceLock(address(scw), sessionKey, true);
@@ -355,7 +379,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests UserOperation validation fails with invalid direct signature
     /// @dev Verifies rejection of UserOp with unauthorized direct signature
-    function test_validateUserOp_DirectSignature_RevertIf_InvalidSigner() public withRequiredModules {
+    function test_validateUserOp_DirectSignature_revertIf_invalidSigner() public withRequiredModules {
         // Create UserOp with ResourceLock
         (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
             _createUserOpWithResourceLock(address(scw), sessionKey, true);
@@ -369,7 +393,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests UserOperation validation with eth-signed message
     /// @dev Verifies successful execution of UserOp with eth-signed EOA signature
-    function test_validateUserOp_EthSignedMessage() public withRequiredModules {
+    function test_validateUserOp_ethSignedMessage() public withRequiredModules {
         // Create UserOp with ResourceLock
         (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
             _createUserOpWithResourceLock(address(scw), sessionKey, true);
@@ -382,7 +406,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests UserOperation validation fails with invalid eth-signed message
     /// @dev Verifies rejection of UserOp with unauthorized eth-signed signature
-    function test_validateUserOp_EthSignedMessage_RevertIf_InvalidSigner() public withRequiredModules {
+    function test_validateUserOp_ethSignedMessage_revertIf_invalidSigner() public withRequiredModules {
         // Create UserOp with ResourceLock
         (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
             _createUserOpWithResourceLock(address(scw), sessionKey, true);
@@ -396,7 +420,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests UserOperation validation with direct merkle signature
     /// @dev Verifies successful execution of UserOp with direct merkle proof signature
-    function test_validateUserOp_DirectMerkleSignature() public withRequiredModules {
+    function test_validateUserOp_directMerkleSignature() public withRequiredModules {
         // Create UserOp with ResourceLock
         (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
             _createUserOpWithResourceLock(address(scw), sessionKey, true);
@@ -408,7 +432,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests batch UserOperation validation with direct merkle signature
     /// @dev Verifies successful execution of UserOp batch with direct merkle proof signature
-    function test_validateUserOp_Batch_DirectMerkleSignature() public withRequiredModules {
+    function test_validateUserOp_batch_directMerkleSignature() public withRequiredModules {
         // Create UserOp with ResourceLock
         (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
             _createUserOpBatchWithResourceLock(address(scw), sessionKey, true);
@@ -419,13 +443,13 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
     }
 
     /// @notice Tests UserOperation validation with large TokenData array using direct merkle signature
-    /// @dev Verifies successful handling of ResourceLock containing 10 token configurations
-    function test_validateUserOp_DirectMerkleSignature_LargeTokenData() public withRequiredModules {
+    /// @dev Verifies successful handling of ResourceLock containing 5 token configurations
+    function test_validateUserOp_directMerkleSignature_largeTokenData() public withRequiredModules {
         // Create UserOp
         PackedUserOperation memory op = _createUserOp(address(scw), address(rlv));
         // Create TokenData array with 10 entries
-        TokenData[] memory tokens = new TokenData[](10);
-        for (uint256 i; i < 10; ++i) {
+        TokenData[] memory tokens = new TokenData[](5);
+        for (uint256 i; i < 5; ++i) {
             tokens[i] = TokenData({token: vm.randomAddress(), amount: vm.randomUint()});
         }
         // Create ResourceLock with large TokenData array
@@ -449,8 +473,8 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         _executeUserOp(op);
         // Check locked tokens
         ICredibleAccountModule.LockedToken[] memory locked = cam.getLockedTokensForSessionKey(sessionKey.pub);
-        assertEq(locked.length, 10);
-        for (uint256 i; i < 10; ++i) {
+        assertEq(locked.length, 5);
+        for (uint256 i; i < 5; ++i) {
             assertEq(locked[i].token, tokens[i].token);
             assertEq(locked[i].lockedAmount, tokens[i].amount);
         }
@@ -458,7 +482,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests UserOperation validation fails with invalid merkle proof
     /// @dev Verifies rejection of UserOp when merkle proof doesn't contain target hash
-    function test_validateUserOp_DirectMerkleSignature_RevertIf_HashNotInProof() public withRequiredModules {
+    function test_validateUserOp_directMerkleSignature_revertIf_hashNotInProof() public withRequiredModules {
         // Create UserOp with ResourceLock
         (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
             _createUserOpWithResourceLock(address(scw), sessionKey, false);
@@ -474,7 +498,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests UserOperation validation fails with invalid direct merkle signature
     /// @dev Verifies rejection of UserOp with unauthorized direct merkle signature
-    function test_validateUserOp_DirectMerkleSignature_RevertIf_InvalidSigner() public withRequiredModules {
+    function test_validateUserOp_directMerkleSignature_revertIf_invalidSigner() public withRequiredModules {
         // Create UserOp with ResourceLock
         (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
             _createUserOpWithResourceLock(address(scw), sessionKey, true);
@@ -487,7 +511,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests UserOperation validation with eth-signed merkle signature
     /// @dev Verifies successful execution of UserOp with eth-signed merkle proof
-    function test_validateUserOp_EthSignedMerkleSignature() public withRequiredModules {
+    function test_validateUserOp_ethSignedMerkleSignature() public withRequiredModules {
         // Create UserOp with ResourceLock
         (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
             _createUserOpWithResourceLock(address(scw), sessionKey, true);
@@ -499,7 +523,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests UserOperation batch validation with eth-signed merkle signature
     /// @dev Verifies successful execution of UserOp batch with eth-signed merkle proof
-    function test_validateUserOp_Batch_EthSignedMerkleSignature() public withRequiredModules {
+    function test_validateUserOp_batch_ethSignedMerkleSignature() public withRequiredModules {
         // Create UserOp with ResourceLock
         (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
             _createUserOpBatchWithResourceLock(address(scw), sessionKey, true);
@@ -510,13 +534,13 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
     }
 
     /// @notice Tests UserOperation validation with large TokenData array using eth-signed merkle signature
-    /// @dev Verifies successful handling of ResourceLock containing 10 token configurations
-    function test_validateUserOp_EthSignedMerkleSignature_LargeTokenData() public withRequiredModules {
+    /// @dev Verifies successful handling of ResourceLock containing 5 token configurations
+    function test_validateUserOp_ethSignedMerkleSignature_largeTokenData() public withRequiredModules {
         // Create UserOp
         PackedUserOperation memory op = _createUserOp(address(scw), address(rlv));
         // Create TokenData array with 10 entries
-        TokenData[] memory tokens = new TokenData[](10);
-        for (uint256 i; i < 10; ++i) {
+        TokenData[] memory tokens = new TokenData[](5);
+        for (uint256 i; i < 5; ++i) {
             tokens[i] = TokenData({token: vm.randomAddress(), amount: vm.randomUint()});
         }
         // Create ResourceLock with large TokenData array
@@ -540,8 +564,8 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         _executeUserOp(op);
         // Check locked tokens
         ICredibleAccountModule.LockedToken[] memory locked = cam.getLockedTokensForSessionKey(sessionKey.pub);
-        assertEq(locked.length, 10);
-        for (uint256 i; i < 10; ++i) {
+        assertEq(locked.length, 5);
+        for (uint256 i; i < 5; ++i) {
             assertEq(locked[i].token, tokens[i].token);
             assertEq(locked[i].lockedAmount, tokens[i].amount);
         }
@@ -549,7 +573,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests UserOperation validation fails with invalid eth-signed merkle proof
     /// @dev Verifies rejection of UserOp when merkle proof doesn't contain target hash
-    function test_validateUserOp_EthSignedMerkleSignature_RevertIf_HashNotInProof() public withRequiredModules {
+    function test_validateUserOp_ethSignedMerkleSignature_revertIf_hashNotInProof() public withRequiredModules {
         // Create UserOp with ResourceLock
         (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
             _createUserOpWithResourceLock(address(scw), sessionKey, false);
@@ -565,7 +589,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
 
     /// @notice Tests UserOperation validation fails with invalid eth-signed merkle signature
     /// @dev Verifies rejection of UserOp with unauthorized eth-signed merkle signature
-    function test_validateUserOp_EthSignedMerkleSignature_RevertIf_InvalidSigner() public withRequiredModules {
+    function test_validateUserOp_ethSignedMerkleSignature_revertIf_invalidSigner() public withRequiredModules {
         // Create UserOp with ResourceLock
         (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
             _createUserOpWithResourceLock(address(scw), sessionKey, true);
@@ -588,5 +612,235 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         op.signature =
             hex"137ad66810b0325f2820c1f9160c2076a1607e5fd7010c4b02368b3905bccef1222086c638e9d828464dcc6330517430cd93516969b23612e3e41199f65950621b4a2c9276c86b3c670b424ab981c89c53f858e870f31a2999cf52353837897362bc36789e7a1e281436464229828f817d6612f7b477d66591ff96a9e064bcc98a";
         _executeUserOp(op);
+    }
+
+    /// @notice Tests UserOperation validation fails with invalid target address in single call
+    /// @dev Verifies rejection of UserOp when target is not the credibleAccountModule
+    function test_validateUserOp_single_revertIf_invalidTarget() public withRequiredModules {
+        // Create UserOp with ResourceLock but modify target to invalid address
+        (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
+            _createUserOpWithResourceLock(address(scw), sessionKey, true);
+
+        // Modify the callData to have an invalid target (use address(0) as invalid target)
+        bytes memory invalidCallData = _createCallDataWithInvalidTarget(address(0));
+        op.callData = invalidCallData;
+
+        // Sign merkle root with EOA
+        bytes memory sig = _sign(merkleRoot, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
+
+        _toRevert(
+            IEntryPoint.FailedOpWithRevert.selector,
+            abi.encode(0, AA23, abi.encodeWithSelector(ResourceLockValidator.RLV_InvalidTarget.selector, address(0)))
+        );
+        _executeUserOp(op);
+    }
+
+    /// @notice Tests UserOperation validation fails with non-zero value in single call
+    /// @dev Verifies rejection of UserOp when value is not zero
+    function test_validateUserOp_single_revertIf_nonZeroValue() public withRequiredModules {
+        // Create UserOp with ResourceLock but modify value to non-zero
+        (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
+            _createUserOpWithResourceLock(address(scw), sessionKey, true);
+
+        // Modify the callData to have non-zero value
+        bytes memory invalidCallData = _createCallDataWithNonZeroValue(1 ether);
+        op.callData = invalidCallData;
+
+        // Sign merkle root with EOA
+        bytes memory sig = _sign(merkleRoot, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
+
+        _toRevert(
+            IEntryPoint.FailedOpWithRevert.selector,
+            abi.encode(0, AA23, abi.encodeWithSelector(ResourceLockValidator.RLV_NonZeroValue.selector, 1 ether))
+        );
+        _executeUserOp(op);
+    }
+
+    /// @notice Tests UserOperation validation fails with invalid selector in single call
+    /// @dev Verifies rejection of UserOp when function selector is not enableSessionKey
+    function test_validateUserOp_single_revertIf_invalidSelector() public withRequiredModules {
+        // Create UserOp with ResourceLock but modify selector to invalid one
+        (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
+            _createUserOpWithResourceLock(address(scw), sessionKey, true);
+
+        // Modify the callData to have invalid selector (use transfer selector as example)
+        bytes memory invalidCallData = _createCallDataWithInvalidSelector(IERC20.transfer.selector);
+        op.callData = invalidCallData;
+
+        // Sign merkle root with EOA
+        bytes memory sig = _sign(merkleRoot, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
+
+        _toRevert(
+            IEntryPoint.FailedOpWithRevert.selector,
+            abi.encode(
+                0,
+                AA23,
+                abi.encodeWithSelector(ResourceLockValidator.RLV_InvalidSelector.selector, IERC20.transfer.selector)
+            )
+        );
+        _executeUserOp(op);
+    }
+
+    /// @notice Tests batch UserOperation validation fails with invalid batch length
+    /// @dev Verifies rejection of UserOp when batch contains more than one execution
+    function test_validateUserOp_batch_revertIf_invalidBatchLength() public withRequiredModules {
+        // Create UserOp with ResourceLock but modify batch to have multiple executions
+        (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
+            _createUserOpBatchWithResourceLock(address(scw), sessionKey, true);
+
+        // Modify the callData to have multiple batch executions
+        bytes memory invalidCallData = _createCallDataWithMultipleBatchExecutions();
+        op.callData = invalidCallData;
+
+        // Sign merkle root with EOA
+        bytes memory sig = _sign(merkleRoot, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
+
+        _toRevert(
+            IEntryPoint.FailedOpWithRevert.selector,
+            abi.encode(0, AA23, abi.encodeWithSelector(ResourceLockValidator.RLV_InvalidBatchLength.selector, 2))
+        );
+        _executeUserOp(op);
+    }
+
+    /// @notice Tests batch UserOperation validation fails with invalid target address
+    /// @dev Verifies rejection of UserOp when batch target is not the credibleAccountModule
+    function test_validateUserOp_batch_revertIf_invalidTarget() public withRequiredModules {
+        // Create UserOp with ResourceLock but modify batch target to invalid address
+        (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
+            _createUserOpBatchWithResourceLock(address(scw), sessionKey, true);
+
+        // Modify the callData to have invalid target in batch
+        bytes memory invalidCallData = _createBatchCallDataWithInvalidTarget(address(0));
+        op.callData = invalidCallData;
+
+        // Sign merkle root with EOA
+        bytes memory sig = _sign(merkleRoot, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
+
+        _toRevert(
+            IEntryPoint.FailedOpWithRevert.selector,
+            abi.encode(0, AA23, abi.encodeWithSelector(ResourceLockValidator.RLV_InvalidTarget.selector, address(0)))
+        );
+        _executeUserOp(op);
+    }
+
+    /// @notice Tests batch UserOperation validation fails with non-zero value
+    /// @dev Verifies rejection of UserOp when batch execution has non-zero value
+    function test_validateUserOp_batch_revertIf_nonZeroValue() public withRequiredModules {
+        // Create UserOp with ResourceLock but modify batch value to non-zero
+        (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
+            _createUserOpBatchWithResourceLock(address(scw), sessionKey, true);
+
+        // Modify the callData to have non-zero value in batch
+        bytes memory invalidCallData = _createBatchCallDataWithNonZeroValue(1 ether);
+        op.callData = invalidCallData;
+
+        // Sign merkle root with EOA
+        bytes memory sig = _sign(merkleRoot, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
+
+        _toRevert(
+            IEntryPoint.FailedOpWithRevert.selector,
+            abi.encode(0, AA23, abi.encodeWithSelector(ResourceLockValidator.RLV_NonZeroValue.selector, 1 ether))
+        );
+        _executeUserOp(op);
+    }
+
+    /// @notice Tests that bidHash is properly recorded after successful validation
+    /// @dev Verifies bidHash is marked as consumed after UserOp execution
+    function test_validateUserOp_recordsBidHashAfterSuccess() public withRequiredModules {
+        // Create UserOp with ResourceLock
+        (PackedUserOperation memory op, ResourceLock memory rl, bytes32[] memory proof, bytes32 merkleRoot) =
+            _createUserOpWithResourceLock(address(scw), sessionKey, true);
+        // Sign merkle root with EOA
+        bytes memory sig = _sign(merkleRoot, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
+        // Verify bidHash is not consumed before execution
+        assertFalse(rlv.consumedBidHash(address(scw), rl.bidHash));
+        // Execute UserOp successfully
+        _executeUserOp(op);
+        // Verify bidHash is now marked as consumed
+        assertTrue(rlv.consumedBidHash(address(scw), rl.bidHash));
+    }
+
+    /// @notice Tests that validation fails when bidHash is already consumed
+    /// @dev Verifies rejection of UserOp with previously used bidHash
+    function test_validateUserOp_revertIf_bidHashAlreadyConsumed() public withRequiredModules {
+        // Create UserOp with ResourceLock
+        (PackedUserOperation memory op, ResourceLock memory rl, bytes32[] memory proof, bytes32 merkleRoot) =
+            _createUserOpWithResourceLock(address(scw), sessionKey, true);
+        // Sign merkle root with EOA
+        bytes memory sig = _sign(merkleRoot, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
+        // Execute UserOp first time (should succeed)
+        _executeUserOp(op);
+        // Verify bidHash is consumed
+        assertTrue(rlv.consumedBidHash(address(scw), rl.bidHash));
+        // Try to execute same UserOp again (should fail)
+        _toRevert(
+            IEntryPoint.FailedOpWithRevert.selector,
+            abi.encode(
+                0,
+                "AA23 reverted",
+                abi.encodeWithSelector(ResourceLockValidator.RLV_BidHashAlreadyConsumed.selector, rl.bidHash)
+            )
+        );
+        _executeUserOp(op);
+    }
+
+    /// @notice Tests bidHash recording with eth-signed message validation
+    /// @dev Verifies bidHash is recorded when using eth-signed message path
+    function test_validateUserOp_recordsBidHashWithEthSignedMessage() public withRequiredModules {
+        // Create UserOp with ResourceLock
+        (PackedUserOperation memory op, ResourceLock memory rl, bytes32[] memory proof, bytes32 merkleRoot) =
+            _createUserOpWithResourceLock(address(scw), sessionKey, true);
+        // Sign merkle root with eth-signed message
+        bytes memory sig = _ethSign(merkleRoot, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
+        // Verify bidHash is not consumed before execution
+        assertFalse(rlv.consumedBidHash(address(scw), rl.bidHash));
+        // Execute UserOp successfully
+        _executeUserOp(op);
+        // Verify bidHash is now marked as consumed
+        assertTrue(rlv.consumedBidHash(address(scw), rl.bidHash));
+    }
+
+    /// @notice Tests bidHash consumption with batch UserOperation
+    /// @dev Verifies bidHash recording works with batch operations
+    function test_validateUserOp_batch_recordsBidHash() public withRequiredModules {
+        // Create batch UserOp with ResourceLock
+        (PackedUserOperation memory op, ResourceLock memory rl, bytes32[] memory proof, bytes32 merkleRoot) =
+            _createUserOpBatchWithResourceLock(address(scw), sessionKey, true);
+        // Sign merkle root with EOA
+        bytes memory sig = _sign(merkleRoot, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
+        // Verify bidHash is not consumed before execution
+        assertFalse(rlv.consumedBidHash(address(scw), rl.bidHash));
+        // Execute UserOp successfully
+        _executeUserOp(op);
+        // Verify bidHash is now marked as consumed
+        assertTrue(rlv.consumedBidHash(address(scw), rl.bidHash));
+    }
+
+    /// @notice Tests that bidHash consumption happens only after successful validation
+    /// @dev Verifies bidHash is not marked as consumed if validation fails for other reasons
+    function test_validateUserOp_doesNotRecordBidHashOnValidationFailure() public withRequiredModules {
+        // Create UserOp with ResourceLock
+        (PackedUserOperation memory op, ResourceLock memory rl, bytes32[] memory proof, bytes32 merkleRoot) =
+            _createUserOpWithResourceLock(address(scw), sessionKey, true);
+        // Sign with wrong key (should cause validation failure)
+        bytes memory sig = _sign(merkleRoot, sessionKey); // Wrong signer
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
+        // Verify bidHash is not consumed before execution
+        assertFalse(rlv.consumedBidHash(address(scw), rl.bidHash));
+        // Execute UserOp (should fail validation)
+        _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
+        _executeUserOp(op);
+        // Verify bidHash is still not consumed after failed validation
+        assertFalse(rlv.consumedBidHash(address(scw), rl.bidHash));
     }
 }

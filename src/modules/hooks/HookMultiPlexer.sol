@@ -27,6 +27,7 @@ contract HookMultiPlexer is IHook, IHookMultiPlexer, TrustedForwarder {
 
     error UnsupportedHookType(HookType hookType);
     error InvalidDataLength(uint256 dataLength);
+    error CannotUninstall();
 
     event HookAdded(address indexed account, address indexed hook, HookType hookType);
     event SigHookAdded(address indexed account, address indexed hook, HookType hookType, bytes4 sig);
@@ -98,9 +99,9 @@ contract HookMultiPlexer is IHook, IHookMultiPlexer, TrustedForwarder {
         // call remove Hook for each subHook (of HookType GLOBAL) in $config.hooks[HookType.GLOBAL]
         // loop through all the hooks of type HookType.GLOBAL and call remove Hook on them
         uint256 length = $config.hooks[HookType.GLOBAL].length;
-        for (uint256 i = 0; i < length; i++) {
+        for (uint256 i; i < length; ++i) {
             address hookAddress = $config.hooks[HookType.GLOBAL][i];
-            IHook(hookAddress).onInstall(abi.encode(MODULE_TYPE_HOOK));
+            IHook(hookAddress).onInstall(abi.encode(MODULE_TYPE_HOOK, msg.sender));
         }
 
         valueHooks.requireSortedAndUnique();
@@ -120,29 +121,9 @@ contract HookMultiPlexer is IHook, IHookMultiPlexer, TrustedForwarder {
 
     /**
      * Uninstalls the module
-     * @dev deletes all the hooks
      */
     function onUninstall(bytes calldata) external override {
-        // cache the storage config
-        Config storage $config = $getConfig({account: msg.sender});
-
-        delete $config.hooks[HookType.GLOBAL];
-
-        // call remove Hook for each subHook (of HookType GLOBAL) in $config.hooks[HookType.GLOBAL]
-        // loop through all the hooks of type HookType.GLOBAL and call remove Hook on them
-        uint256 length = $config.hooks[HookType.GLOBAL].length;
-        for (uint256 i = 0; i < length; i++) {
-            address hookAddress = $config.hooks[HookType.GLOBAL][i];
-            _removeHook(hookAddress, HookType.GLOBAL);
-        }
-
-        delete $config.hooks[HookType.DELEGATECALL];
-        delete $config.hooks[HookType.VALUE];
-        $config.sigHooks[HookType.SIG].deleteHooks();
-        $config.sigHooks[HookType.TARGET_SIG].deleteHooks();
-        $config.initialized = false;
-
-        emit AccountUninitialized(msg.sender);
+        revert CannotUninstall();
     }
 
     /**
@@ -203,7 +184,7 @@ contract HookMultiPlexer is IHook, IHookMultiPlexer, TrustedForwarder {
         if (!isInitialized(msg.sender)) revert NotInitialized(msg.sender);
 
         // call `onInstall` on the hook
-        IHook(hook).onInstall(abi.encode(MODULE_TYPE_HOOK));
+        IHook(hook).onInstall(abi.encode(MODULE_TYPE_HOOK, msg.sender));
 
         // store subhook
         $getConfig({account: msg.sender}).hooks[hookType].push(hook);

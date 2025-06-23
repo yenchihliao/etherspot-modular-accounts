@@ -6,6 +6,7 @@ import "ERC7579/interfaces/IERC7579Account.sol";
 import {ExecutionLib} from "ERC7579/libs/ExecutionLib.sol";
 import {ModeLib} from "ERC7579/libs/ModeLib.sol";
 import {ModularTestBase} from "../../../ModularTestBase.sol";
+import {ICredibleAccountModule} from "../../../../src/interfaces/ICredibleAccountModule.sol";
 import "../../../../src/common/Constants.sol";
 import "../../../../src/common/Enums.sol";
 import "../../../../src/common/Structs.sol";
@@ -86,7 +87,7 @@ contract ResourceLockValidatorTestUtils is ModularTestBase {
         td[0] = TokenData({token: address(usdt), amount: 100});
         td[1] = TokenData({token: address(dai), amount: 200});
         ResourceLock memory rl = ResourceLock({
-            chainId: 42161,
+            chainId: block.chainid,
             smartWallet: _scw,
             sessionKey: _sk,
             validAfter: 1732176210,
@@ -95,5 +96,114 @@ contract ResourceLockValidatorTestUtils is ModularTestBase {
             tokenData: td
         });
         return rl;
+    }
+
+    /// @notice Helper function to create callData with invalid target
+    function _createCallDataWithInvalidTarget(address invalidTarget) internal view returns (bytes memory) {
+        // Create execution data for enableSessionKey
+        bytes memory execData = abi.encodeWithSelector(
+            ICredibleAccountModule.enableSessionKey.selector,
+            abi.encode(_generateResourceLock(address(scw), sessionKey.pub))
+        );
+        // Create single execution with invalid target
+        bytes memory execution = ExecutionLib.encodeSingle(invalidTarget, 0, execData);
+        // Create full callData with execute selector and mode
+        return abi.encodeWithSelector(IERC7579Account.execute.selector, ModeLib.encodeSimpleSingle(), execution);
+    }
+
+    /// @notice Helper function to create callData with non-zero value
+    function _createCallDataWithNonZeroValue(uint256 value) internal view returns (bytes memory) {
+        // Create execution data for enableSessionKey
+        bytes memory execData = abi.encodeWithSelector(
+            ICredibleAccountModule.enableSessionKey.selector,
+            abi.encode(_generateResourceLock(address(scw), sessionKey.pub))
+        );
+        // Create single execution with non-zero value
+        bytes memory execution = ExecutionLib.encodeSingle(address(cam), value, execData);
+        // Create full callData with execute selector and mode
+        return abi.encodeWithSelector(IERC7579Account.execute.selector, ModeLib.encodeSimpleSingle(), execution);
+    }
+
+    /// @notice Helper function to create callData with invalid selector
+    function _createCallDataWithInvalidSelector(bytes4 invalidSelector) internal view returns (bytes memory) {
+        // Create execution data with invalid selector
+        bytes memory execData =
+            abi.encodeWithSelector(invalidSelector, abi.encode(_generateResourceLock(address(scw), sessionKey.pub)));
+        // Create single execution
+        bytes memory execution = ExecutionLib.encodeSingle(address(cam), 0, execData);
+        // Create full callData with execute selector and mode
+        return abi.encodeWithSelector(IERC7579Account.execute.selector, ModeLib.encodeSimpleSingle(), execution);
+    }
+
+    /// @notice Helper function to create batch callData with multiple executions (invalid)
+    function _createCallDataWithMultipleBatchExecutions() internal view returns (bytes memory) {
+        // Create first execution with enableSessionKey
+        bytes memory execData1 = abi.encodeWithSelector(
+            ICredibleAccountModule.enableSessionKey.selector,
+            abi.encode(_generateResourceLock(address(scw), sessionKey.pub))
+        );
+        // Create second execution (dummy execution to make batch invalid)
+        bytes memory execData2 = abi.encodeWithSelector(
+            ICredibleAccountModule.enableSessionKey.selector,
+            abi.encode(_generateResourceLock(address(scw), sessionKey.pub))
+        );
+        // Create array of executions (2 executions - this should be invalid)
+        Execution[] memory executions = new Execution[](2);
+        executions[0] = Execution({target: address(cam), value: 0, callData: execData1});
+        executions[1] = Execution({target: address(cam), value: 0, callData: execData2});
+        // Encode batch execution
+        bytes memory batchExecution = ExecutionLib.encodeBatch(executions);
+        // Create full callData with execute selector and batch mode
+        return abi.encodeWithSelector(IERC7579Account.execute.selector, ModeLib.encodeSimpleBatch(), batchExecution);
+    }
+
+    /// @notice Helper function to create batch callData with invalid target
+    function _createBatchCallDataWithInvalidTarget(address invalidTarget) internal view returns (bytes memory) {
+        // Create execution data for enableSessionKey
+        bytes memory execData = abi.encodeWithSelector(
+            ICredibleAccountModule.enableSessionKey.selector,
+            abi.encode(_generateResourceLock(address(scw), sessionKey.pub))
+        );
+        // Create single execution array with invalid target
+        Execution[] memory executions = new Execution[](1);
+        executions[0] = Execution({
+            target: invalidTarget, // Invalid target
+            value: 0,
+            callData: execData
+        });
+        // Encode batch execution
+        bytes memory batchExecution = ExecutionLib.encodeBatch(executions);
+        // Create full callData with execute selector and batch mode
+        return abi.encodeWithSelector(IERC7579Account.execute.selector, ModeLib.encodeSimpleBatch(), batchExecution);
+    }
+
+    /// @notice Helper function to create batch callData with non-zero value
+    function _createBatchCallDataWithNonZeroValue(uint256 value) internal view returns (bytes memory) {
+        // Create execution data for enableSessionKey
+        bytes memory execData = abi.encodeWithSelector(
+            ICredibleAccountModule.enableSessionKey.selector,
+            abi.encode(_generateResourceLock(address(scw), sessionKey.pub))
+        );
+        // Create single execution array with non-zero value
+        Execution[] memory executions = new Execution[](1);
+        executions[0] = Execution({
+            target: address(cam),
+            value: value, // Non-zero value (should be invalid)
+            callData: execData
+        });
+        // Encode batch execution
+        bytes memory batchExecution = ExecutionLib.encodeBatch(executions);
+        // Create full callData with execute selector and batch mode
+        return abi.encodeWithSelector(IERC7579Account.execute.selector, ModeLib.encodeSimpleBatch(), batchExecution);
+    }
+
+    /// @notice Helper function to create callData with specific ResourceLock
+    function _createCallDataWithResourceLock(ResourceLock memory rl) internal view returns (bytes memory) {
+        // Create execution data for enableSessionKey
+        bytes memory execData = abi.encodeWithSelector(ICredibleAccountModule.enableSessionKey.selector, abi.encode(rl));
+        // Create single execution
+        bytes memory execution = ExecutionLib.encodeSingle(address(cam), 0, execData);
+        // Create full callData with execute selector and mode
+        return abi.encodeWithSelector(IERC7579Account.execute.selector, ModeLib.encodeSimpleSingle(), execution);
     }
 }
