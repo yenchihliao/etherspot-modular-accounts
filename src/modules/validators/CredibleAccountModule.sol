@@ -39,12 +39,9 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     error CredibleAccountModule_SessionKeyDoesNotExist(address session);
     error CredibleAccountModule_LockedTokensNotClaimed(address sessionKey);
     error CredibleAccountModule_InvalidHookMultiPlexer();
-    error CredibleAccountModule_HookMultiplexerIsNotInstalled();
-    error CredibleAccountModule_NotAddedToHookMultiplexer();
     error CredibleAccountModule_InvalidOnInstallData(address wallet);
     error CredibleAccountModule_InvalidOnUnInstallData(address wallet);
     error CredibleAccountModule_InvalidModuleType();
-    error CredibleAccountModule_ValidatorExists();
     error CredibleAccountModule_InsufficientUnlockedBalance(address token);
     error CredibleAccountModule_UnauthorizedDisabler(address caller);
     error CredibleAccountModule_SenderMismatch(address sender, address caller);
