@@ -142,7 +142,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         if (rl.validAfter == 0) {
             revert CredibleAccountModule_InvalidValidAfter();
         }
-        if (rl.validUntil == 0 || rl.validUntil <= rl.validAfter || rl.validUntil <= block.timestamp) {
+        if (rl.validUntil <= rl.validAfter || rl.validUntil <= block.timestamp) {
             revert CredibleAccountModule_InvalidValidUntil(rl.validUntil);
         }
         if (rl.chainId != 0 && rl.chainId != block.chainid) {
@@ -340,6 +340,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
             moduleInitialized[msg.sender].validatorInitialized = true;
             emit CredibleAccountModule_ModuleInstalled(msg.sender);
         } else if (moduleType == MODULE_TYPE_HOOK) {
+            if (msg.sender != address(hookMultiPlexer)) revert CredibleAccountModule_InvalidCaller();
             moduleInitialized[sender].hookInitialized = true;
         } else {
             revert CredibleAccountModule_InvalidModuleType();
@@ -442,6 +443,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     {
         (address target,, bytes calldata execData) = ExecutionLib.decodeSingle(_callData[EXEC_OFFSET:]);
         (bytes4 selector,, uint256 amount) = _digestClaimTx(execData);
+        if (selector == bytes4(0)) return false;
         return _validateTokenData(_sessionKey, _wallet, amount, target);
     }
 
@@ -582,7 +584,11 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     // @inheritdoc ICredibleAccountModule
     function postCheck(bytes calldata hookData) external {
         if (hookData.length == 0) return;
+        if (msg.sender != address(hookMultiPlexer)) revert CredibleAccountModule_InvalidCaller();
         (address sender, TokenData[] memory preCheckBalances) = abi.decode(hookData, (address, TokenData[]));
+        if (!moduleInitialized[sender].hookInitialized) {
+            revert CredibleAccountModule_HookNotInitialized(sender);
+        }
         for (uint256 i; i < preCheckBalances.length; ++i) {
             address token = preCheckBalances[i].token;
             uint256 preCheckLocked = preCheckBalances[i].amount;

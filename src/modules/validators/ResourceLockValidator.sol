@@ -59,6 +59,7 @@ contract ResourceLockValidator is IResourceLockValidator {
     error RLV_InvalidCallType();
     error RLV_InvalidBatchLength(uint256 batchLength);
     error RLV_BidHashAlreadyConsumed(bytes32 bidHash);
+    error RLV_InvalidUserOpSender();
 
     /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
@@ -98,6 +99,10 @@ contract ResourceLockValidator is IResourceLockValidator {
     {
         bytes calldata signature = userOp.signature;
         address walletOwner = validatorStorage[msg.sender].owner;
+        // TODO: Need to check this validation on live network via bundler
+        if (msg.sender != userOp.sender) {
+            revert RLV_InvalidUserOpSender();
+        }
         // Standard signature length - no proof packing
         if (signature.length == 65) {
             // standard ECDSA recover
@@ -132,18 +137,18 @@ contract ResourceLockValidator is IResourceLockValidator {
         if (!MerkleProofLib.verify(proof, root, _buildResourceLockHash(rl))) {
             revert RLV_ResourceLockHashNotInProof();
         }
-        if (consumedBidHash[userOp.sender][rl.bidHash]) {
+        if (consumedBidHash[walletOwner][rl.bidHash]) {
             revert RLV_BidHashAlreadyConsumed(rl.bidHash);
         }
         // check proof is signed
         if (walletOwner == ECDSA.recover(root, ecdsaSignature)) {
-            consumedBidHash[userOp.sender][rl.bidHash] = true;
+            consumedBidHash[walletOwner][rl.bidHash] = true;
             return SIG_VALIDATION_SUCCESS;
         }
         bytes32 sigRoot = ECDSA.toEthSignedMessageHash(root);
         address recoveredMSigner = ECDSA.recover(sigRoot, ecdsaSignature);
         if (walletOwner != recoveredMSigner) return SIG_VALIDATION_FAILED;
-        consumedBidHash[userOp.sender][rl.bidHash] = true;
+        consumedBidHash[walletOwner][rl.bidHash] = true;
         return SIG_VALIDATION_SUCCESS;
     }
 
