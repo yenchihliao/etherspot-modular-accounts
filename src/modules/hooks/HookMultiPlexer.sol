@@ -15,7 +15,7 @@ import "../../common/Structs.sol";
 ///      This contract is based on the original implementation by rhinestone.wtf,
 ///      with modifications made by etherspot to extend its functionality.
 /// @author Original: rhinestone.wtf
-/// @author Modified by: ethersp
+/// @author Modified by: etherspot
 /// @notice This contract is licensed under AGPL-3.0-only.
 ///         Modifications have been made from the original version.
 ///         See https://www.gnu.org/licenses/agpl-3.0.html for full license text.
@@ -360,7 +360,7 @@ contract HookMultiPlexer is IHook, IHookMultiPlexer, TrustedForwarder {
      * @return name of the module
      */
     function name() external pure virtual returns (string memory) {
-        return "HookMultiPlexer";
+        return "EtherspotHookMultiPlexer";
     }
 
     /**
@@ -369,6 +369,6 @@ contract HookMultiPlexer is IHook, IHookMultiPlexer, TrustedForwarder {
      * @return version of the module
      */
     function version() external pure virtual returns (string memory) {
-        return "1.0.0";
+        return "2.0.0";
     }
 }

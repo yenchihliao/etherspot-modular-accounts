@@ -1738,4 +1738,81 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         _toRevert(CAM.CredibleAccountModule_ModuleNotInstalled.selector, abi.encode(hookOnlyWallet));
         cam.validateUserOp(userOp, userOpHash);
     }
+
+    // Test: isInitialized returns true when both validator and hook are installed
+    function test_isInitialized_returnsTrueWhen_bothModulesInstalled() public withRequiredModules {
+        // Verify both modules are installed via the modifier
+        assertTrue(cam.isInitialized(address(scw)), "Should return true when both validator and hook are initialized");
+    }
+
+    // Test: isInitialized returns false when only hook is installed
+    function test_isInitialized_returnsFalseWhen_onlyHookInstalled() public {
+        _testSetup();
+        _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(moecdsav), hex"");
+        // Install only hook module
+        _installHookViaMultiplexer(scw, address(cam), HookType.GLOBAL);
+        // Should return false since validator is not installed
+        assertFalse(cam.isInitialized(address(scw)), "Should return false when only hook is initialized");
+    }
+
+    // Test: isInitialized returns false when only validator is installed
+    function test_isInitialized_returnsFalseWhen_onlyValidatorInstalled() public {
+        _testSetup();
+        _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(moecdsav), hex"");
+        // Install hook first (required for validator installation)
+        _installHookViaMultiplexer(scw, address(cam), HookType.GLOBAL);
+        // Install only validator module
+        _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(cam), abi.encode(MODULE_TYPE_VALIDATOR));
+        // Uninstall validator
+        _uninstallModule(
+            eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(cam), abi.encode(MODULE_TYPE_VALIDATOR, address(scw))
+        );
+        // Should return false since hook is not initialized
+        assertFalse(cam.isInitialized(address(scw)), "Should return false when only validator is initialized");
+    }
+
+    function test_claimingTokens_exactWalletBalance_edgeCase() public withRequiredModules {
+        // Get current wallet balances to determine exact amounts
+        uint256 usdcBalance = usdc.balanceOf(address(scw));
+        uint256 daiBalance = dai.balanceOf(address(scw));
+        uint256 usdtBalance = usdt.balanceOf(address(scw));
+        // Verify wallet has tokens initially
+        assertTrue(usdcBalance > 0, "Wallet should have usdc balance");
+        assertTrue(daiBalance > 0, "Wallet should have dai balance");
+        assertTrue(usdtBalance > 0, "Wallet should have usdt balance");
+        // Create session key data with EXACT wallet balances (edge case: 100% locked)
+        TokenData[] memory exactTokenData = new TokenData[](3);
+        exactTokenData[0] = TokenData({token: address(usdc), amount: usdcBalance});
+        exactTokenData[1] = TokenData({token: address(dai), amount: daiBalance});
+        exactTokenData[2] = TokenData({token: address(usdt), amount: usdtBalance});
+        ResourceLock memory exactResourceLock = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: address(scw),
+            sessionKey: sessionKey.pub,
+            validAfter: uint48(block.timestamp),
+            validUntil: uint48(block.timestamp + 1000),
+            bidHash: keccak256("exactBalanceTest"),
+            tokenData: exactTokenData
+        });
+        // Enable session key with exact wallet balance amounts
+        bytes memory exactResourceLockData = abi.encode(exactResourceLock);
+        vm.startPrank(address(scw));
+        cam.enableSessionKey(exactResourceLockData);
+        // Verify session key is enabled
+        assertTrue(cam.getSessionKeyData(sessionKey.pub).live, "Session key should be live");
+        vm.stopPrank();
+        // Claim ALL tokens (exact amounts) - this should result in zero wallet balance
+        _claimTokensBySolver(eoa, scw, sessionKey, usdcBalance, daiBalance, usdtBalance);
+        // Verify the edge case: wallet balances are now zero
+        assertEq(usdc.balanceOf(address(scw)), 0, "usdc wallet balance should be zero");
+        assertEq(dai.balanceOf(address(scw)), 0, "dai wallet balance should be zero");
+        assertEq(usdt.balanceOf(address(scw)), 0, "usdt wallet balance should be zero");
+        // Verify tokens are fully claimed
+        assertTrue(cam.isSessionClaimed(sessionKey.pub), "Session should be fully claimed");
+        // Verify no locked tokens remain
+        assertEq(cam.tokenTotalLockedForWallet(address(usdc)), 0, "No usdc should remain locked");
+        assertEq(cam.tokenTotalLockedForWallet(address(dai)), 0, "No dai should remain locked");
+        assertEq(cam.tokenTotalLockedForWallet(address(usdt)), 0, "No usdt should remain locked");
+        vm.stopPrank();
+    }
 }

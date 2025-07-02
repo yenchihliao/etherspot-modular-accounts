@@ -3,6 +3,7 @@ pragma solidity 0.8.23;
 
 import {ECDSA} from "solady/src/utils/ECDSA.sol";
 import {MerkleProofLib} from "solady/src/utils/MerkleProofLib.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
 import "ERC7579/interfaces/IERC7579Account.sol";
 import "ERC7579/libs/ModeLib.sol";
@@ -22,12 +23,14 @@ contract ResourceLockValidator is IResourceLockValidator {
     using ECDSA for bytes32;
     using ModeLib for ModeCode;
     using ExecutionLib for bytes;
+    using EnumerableSet for EnumerableSet.Bytes32Set;
 
     /*//////////////////////////////////////////////////////////////
                               VARIABLES
     //////////////////////////////////////////////////////////////*/
 
-    ICredibleAccountModule public immutable credibleAccountModule;
+    address public immutable owner;
+    ICredibleAccountModule public credibleAccountModule;
 
     /*//////////////////////////////////////////////////////////////
                                STRUCTS
@@ -43,7 +46,7 @@ contract ResourceLockValidator is IResourceLockValidator {
     //////////////////////////////////////////////////////////////*/
 
     mapping(address => ValidatorStorage) public validatorStorage;
-    mapping(address wallet => mapping(bytes32 bidHash => bool consumed)) public consumedBidHash;
+    mapping(address wallet => EnumerableSet.Bytes32Set) private consumedBidHashes;
 
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
@@ -51,6 +54,8 @@ contract ResourceLockValidator is IResourceLockValidator {
 
     error RLV_AlreadyInstalled(address scw, address eoa);
     error RLV_NotInstalled(address scw);
+    error RLV_InvalidOwner();
+    error RLV_InvalidCredibleAccountModule();
     error RLV_InvalidDataLength();
     error RLV_ResourceLockHashNotInProof();
     error RLV_InvalidTarget(address target);
@@ -62,10 +67,27 @@ contract ResourceLockValidator is IResourceLockValidator {
     error RLV_InvalidUserOpSender();
 
     /*//////////////////////////////////////////////////////////////
+                              MODIFIERS
+    //////////////////////////////////////////////////////////////*/
+
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert RLV_InvalidOwner();
+        _;
+    }
+
+    /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address _credibleAccountModule) {
+    // TODO: Test credible account module address revert
+    constructor(address _owner, address _credibleAccountModule) {
+        if (_owner == address(0)) {
+            revert RLV_InvalidOwner();
+        }
+        if (_credibleAccountModule == address(0)) {
+            revert RLV_InvalidCredibleAccountModule();
+        }
+        owner = _owner;
         credibleAccountModule = ICredibleAccountModule(_credibleAccountModule);
     }
 
@@ -75,23 +97,22 @@ contract ResourceLockValidator is IResourceLockValidator {
 
     function onInstall(bytes calldata _data) external override {
         if (_data.length < 20) revert RLV_InvalidDataLength();
-        address owner = address(bytes20(_data[_data.length - 20:]));
+        address wallet = address(bytes20(_data[_data.length - 20:]));
         if (validatorStorage[msg.sender].enabled) {
             revert RLV_AlreadyInstalled(msg.sender, validatorStorage[msg.sender].owner);
         }
-        validatorStorage[msg.sender].owner = owner;
+        validatorStorage[msg.sender].owner = wallet;
         validatorStorage[msg.sender].enabled = true;
-        emit RLV_ValidatorEnabled(msg.sender, owner);
+        emit RLV_ValidatorEnabled(msg.sender, wallet);
     }
 
     function onUninstall(bytes calldata) external override {
         if (!_isInitialized(msg.sender)) revert RLV_NotInstalled(msg.sender);
+        delete consumedBidHashes[msg.sender];
         delete validatorStorage[msg.sender];
         emit RLV_ValidatorDisabled(msg.sender);
     }
 
-    // TODO: Need to figure out how to unpack resource lock data and hash
-    // from UserOperation
     function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash)
         external
         override
@@ -103,17 +124,18 @@ contract ResourceLockValidator is IResourceLockValidator {
         if (msg.sender != userOp.sender) {
             revert RLV_InvalidUserOpSender();
         }
+        // NOTE: check redundant code with auditor
         // Standard signature length - no proof packing
-        if (signature.length == 65) {
-            // standard ECDSA recover
-            if (walletOwner == ECDSA.recover(userOpHash, signature)) {
-                return SIG_VALIDATION_SUCCESS;
-            }
-            bytes32 sigHash = ECDSA.toEthSignedMessageHash(userOpHash);
-            address recoveredSigner = ECDSA.recover(sigHash, signature);
-            if (walletOwner != recoveredSigner) return SIG_VALIDATION_FAILED;
-            return SIG_VALIDATION_SUCCESS;
-        }
+        // if (signature.length == 65) {
+        //     // standard ECDSA recover
+        //     if (walletOwner == ECDSA.recover(userOpHash, signature)) {
+        //         return SIG_VALIDATION_SUCCESS;
+        //     }
+        //     bytes32 sigHash = ECDSA.toEthSignedMessageHash(userOpHash);
+        //     address recoveredSigner = ECDSA.recover(sigHash, signature);
+        //     if (walletOwner != recoveredSigner) return SIG_VALIDATION_FAILED;
+        //     return SIG_VALIDATION_SUCCESS;
+        // }
         // or if signature.length >= 65 (standard signature length + proof packing)
         ResourceLock memory rl = _getResourceLock(userOp.callData);
         // Nonce validation
@@ -137,18 +159,18 @@ contract ResourceLockValidator is IResourceLockValidator {
         if (!MerkleProofLib.verify(proof, root, _buildResourceLockHash(rl))) {
             revert RLV_ResourceLockHashNotInProof();
         }
-        if (consumedBidHash[walletOwner][rl.bidHash]) {
+        if (consumedBidHashes[userOp.sender].contains(rl.bidHash)) {
             revert RLV_BidHashAlreadyConsumed(rl.bidHash);
         }
         // check proof is signed
         if (walletOwner == ECDSA.recover(root, ecdsaSignature)) {
-            consumedBidHash[walletOwner][rl.bidHash] = true;
+            consumedBidHashes[userOp.sender].add(rl.bidHash);
             return SIG_VALIDATION_SUCCESS;
         }
         bytes32 sigRoot = ECDSA.toEthSignedMessageHash(root);
         address recoveredMSigner = ECDSA.recover(sigRoot, ecdsaSignature);
         if (walletOwner != recoveredMSigner) return SIG_VALIDATION_FAILED;
-        consumedBidHash[walletOwner][rl.bidHash] = true;
+        consumedBidHashes[userOp.sender].add(rl.bidHash);
         return SIG_VALIDATION_SUCCESS;
     }
 
@@ -159,15 +181,16 @@ contract ResourceLockValidator is IResourceLockValidator {
         returns (bytes4)
     {
         address walletOwner = validatorStorage[msg.sender].owner;
-        if (signature.length == 65) {
-            if (walletOwner == ECDSA.recover(hash, signature)) {
-                return ERC1271_MAGIC_VALUE;
-            }
-            bytes32 sigHash = ECDSA.toEthSignedMessageHash(hash);
-            address recoveredSigner = ECDSA.recover(sigHash, signature);
-            if (walletOwner != recoveredSigner) return ERC1271_INVALID;
-            return ERC1271_MAGIC_VALUE;
-        }
+        // NOTE: check redundant code with auditor
+        // if (signature.length == 65) {
+        //     if (walletOwner == ECDSA.recover(hash, signature)) {
+        //         return ERC1271_MAGIC_VALUE;
+        //     }
+        //     bytes32 sigHash = ECDSA.toEthSignedMessageHash(hash);
+        //     address recoveredSigner = ECDSA.recover(sigHash, signature);
+        //     if (walletOwner != recoveredSigner) return ERC1271_INVALID;
+        //     return ERC1271_MAGIC_VALUE;
+        // }
         bytes memory ecdsaSig = signature[0:65];
         bytes32 root = bytes32(signature[65:97]);
         bytes32[] memory proof;
@@ -198,6 +221,19 @@ contract ResourceLockValidator is IResourceLockValidator {
         return ERC1271_MAGIC_VALUE;
     }
 
+    function getCredibleAccountModule() external view returns (address) {
+        return address(credibleAccountModule);
+    }
+
+    function setCredibleAccountModule(address _credibleAccountModule) external onlyOwner {
+        if (_credibleAccountModule == address(0)) revert RLV_InvalidCredibleAccountModule();
+        credibleAccountModule = ICredibleAccountModule(_credibleAccountModule);
+    }
+
+    function isConsumedBidHash(address _wallet, bytes32 _bidHash) external view returns (bool) {
+        return consumedBidHashes[_wallet].contains(_bidHash);
+    }
+
     function isModuleType(uint256 typeID) external pure override returns (bool) {
         return typeID == MODULE_TYPE_VALIDATOR;
     }
@@ -219,10 +255,10 @@ contract ResourceLockValidator is IResourceLockValidator {
         length = uint256(bytes32(_data[100 + offset:132 + offset]));
     }
 
-    function _getSingleTokenData(bytes calldata _data, uint256 basePos) internal pure returns (TokenData memory) {
+    function _getSingleTokenData(bytes calldata _data, uint256 _basePos) internal pure returns (TokenData memory) {
         return TokenData({
-            token: address(uint160(uint256(bytes32(_data[basePos:basePos + 32])))),
-            amount: uint256(bytes32(_data[basePos + 32:basePos + 64]))
+            token: address(uint160(uint256(bytes32(_data[_basePos:_basePos + 32])))),
+            amount: uint256(bytes32(_data[_basePos + 32:_basePos + 64]))
         });
     }
 

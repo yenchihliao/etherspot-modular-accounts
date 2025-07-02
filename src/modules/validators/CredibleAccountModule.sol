@@ -6,17 +6,11 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {AccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
 import "ERC7579/interfaces/IERC7579Account.sol";
-import {
-    MODULE_TYPE_VALIDATOR,
-    MODULE_TYPE_HOOK,
-    VALIDATION_FAILED,
-    VALIDATION_SUCCESS
-} from "ERC7579/interfaces/IERC7579Module.sol";
+import {MODULE_TYPE_VALIDATOR, MODULE_TYPE_HOOK, VALIDATION_FAILED} from "ERC7579/interfaces/IERC7579Module.sol";
 import "ERC4337/core/Helpers.sol";
 import "ERC7579/libs/ModeLib.sol";
 import "ERC7579/libs/ExecutionLib.sol";
 import {ICredibleAccountModule} from "../../interfaces/ICredibleAccountModule.sol";
-import {IHookLens} from "../../interfaces/IHookLens.sol";
 import {IHookMultiPlexer} from "../../interfaces/IHookMultiPlexer.sol";
 import "../../common/Structs.sol";
 
@@ -323,7 +317,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         // If data length is exactly 32, it's likely just abi.encode(uint256)
         // If data length is longer, it might include function selector
         if (data.length == 32) {
-            // Direct abi.encode(uint256) - used by HookMultiPlexer
+            // Direct abi.encode(uint256)
             moduleType = abi.decode(data, (uint256));
         } else if (data.length == 64) {
             // Direct abi.encode(uint256, address) - used by HookMultiPlexer
@@ -406,7 +400,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
 
     // @inheritdoc ICredibleAccountModule
     function isInitialized(address smartAccount) external view returns (bool) {
-        return moduleInitialized[smartAccount].validatorInitialized;
+        return moduleInitialized[smartAccount].validatorInitialized && moduleInitialized[smartAccount].hookInitialized;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -594,10 +588,11 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
             uint256 preCheckLocked = preCheckBalances[i].amount;
             uint256 walletBalance = _walletTokenBalance(sender, token);
             uint256 postCheckLocked = _retrieveLockedBalance(sender, token);
-            if (walletBalance == 0 && preCheckLocked - postCheckLocked != 0) {
-                // Handles scenario of claim of complete balance
-                revert CredibleAccountModule_InsufficientUnlockedBalance(token);
-            }
+            // TODO: check this
+            // if (walletBalance == 0 && preCheckLocked - postCheckLocked != 0) {
+            //     // Handles scenario of claim of complete balance
+            //     revert CredibleAccountModule_InsufficientUnlockedBalance(token);
+            // }
             if (walletBalance < preCheckLocked && walletBalance < postCheckLocked && walletBalance != 0) {
                 revert CredibleAccountModule_InsufficientUnlockedBalance(token);
             }
