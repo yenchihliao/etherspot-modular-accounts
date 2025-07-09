@@ -156,56 +156,6 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         assertEq(rlv.getCredibleAccountModule(), address(cam));
     }
 
-    /// @notice Tests direct hash signature validation
-    /// @dev Verifies successful validation of EOA-signed direct hash
-    function test_isValidSignatureWithSender_directHashSignature() public withRequiredModules {
-        vm.skip(true);
-        // Build UserOperation
-        PackedUserOperation memory op = _createUserOp(address(scw), address(rlv));
-        bytes32 hash = entrypoint.getUserOpHash(op);
-        // Direct hash signature
-        bytes memory sig = _sign(hash, eoa);
-        assertEq(rlv.isValidSignatureWithSender(eoa.pub, hash, sig), ERC1271_MAGIC_VALUE);
-    }
-
-    /// @notice Tests direct hash signature validation fails with invalid signer
-    /// @dev Verifies rejection of signatures from unauthorized accounts
-    function test_isValidSignatureWithSender_directHashSignature_revertIf_invalidSigner() public withRequiredModules {
-        vm.skip(true);
-        // Build UserOperation
-        PackedUserOperation memory op = _createUserOp(address(scw), address(rlv));
-        bytes32 hash = entrypoint.getUserOpHash(op);
-        // Direct hash signature
-        bytes memory sig = _sign(hash, sessionKey);
-        assertEq(rlv.isValidSignatureWithSender(eoa.pub, hash, sig), ERC1271_INVALID);
-    }
-
-    /// @notice Tests eth-signed message validation
-    /// @dev Verifies successful validation of EOA eth-signed messages
-    function test_isValidSignatureWithSender_ethSignedMessage() public withRequiredModules {
-        vm.skip(true);
-        // Build UserOperation
-        PackedUserOperation memory op = _createUserOp(address(scw), address(rlv));
-        bytes32 hash = entrypoint.getUserOpHash(op);
-        // Sign the user operation
-        bytes memory sig = _ethSign(hash, eoa);
-        // Check signature is valid
-        assertEq(rlv.isValidSignatureWithSender(eoa.pub, hash, sig), ERC1271_MAGIC_VALUE);
-    }
-
-    /// @notice Tests eth-signed message validation fails with invalid signer
-    /// @dev Verifies rejection of eth-signed messages from unauthorized accounts
-    function test_isValidSignatureWithSender_ethSignedMessage_revertIf_invalidSigner() public withRequiredModules {
-        vm.skip(true);
-        // Build UserOperation
-        PackedUserOperation memory op = _createUserOp(address(scw), address(rlv));
-        bytes32 hash = entrypoint.getUserOpHash(op);
-        // Sign the user operation
-        bytes memory sig = _ethSign(hash, sessionKey);
-        // Prank as EOA
-        assertEq(rlv.isValidSignatureWithSender(eoa.pub, hash, sig), ERC1271_INVALID);
-    }
-
     /// @notice Tests direct merkle signature validation
     /// @dev Verifies successful validation of merkle proofs with direct signatures
     function test_isValidSignatureWithSender_directMerkleSignature() public withRequiredModules {
@@ -398,64 +348,6 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         // Expect revert
         _toRevert(ResourceLockValidator.RLV_ResourceLockHashNotInProof.selector, hex"");
         rlv.isValidSignatureWithSender(eoa.pub, rlHash, compositeSig);
-    }
-
-    /// @notice Tests UserOperation validation with direct signature
-    /// @dev Verifies successful execution of UserOp with direct EOA signature
-    function test_validateUserOp_directSignature() public withRequiredModules {
-        vm.skip(true);
-        // Create UserOp with ResourceLock
-        (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
-            _createUserOpWithResourceLock(address(scw), sessionKey, true);
-        // Get hash of UserOp
-        bytes32 hash = entrypoint.getUserOpHash(op);
-        // Direct hash signature
-        op.signature = _sign(hash, eoa);
-        _executeUserOp(op);
-    }
-
-    /// @notice Tests UserOperation validation fails with invalid direct signature
-    /// @dev Verifies rejection of UserOp with unauthorized direct signature
-    function test_validateUserOp_DirectSignature_revertIf_invalidSigner() public withRequiredModules {
-        vm.skip(true);
-        // Create UserOp with ResourceLock
-        (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
-            _createUserOpWithResourceLock(address(scw), sessionKey, true);
-        // Get hash of UserOp
-        bytes32 hash = entrypoint.getUserOpHash(op);
-        // Direct hash signature
-        op.signature = _sign(hash, sessionKey);
-        _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
-        _executeUserOp(op);
-    }
-
-    /// @notice Tests UserOperation validation with eth-signed message
-    /// @dev Verifies successful execution of UserOp with eth-signed EOA signature
-    function test_validateUserOp_ethSignedMessage() public withRequiredModules {
-        vm.skip(true);
-        // Create UserOp with ResourceLock
-        (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
-            _createUserOpWithResourceLock(address(scw), sessionKey, true);
-        // Get hash of UserOp
-        bytes32 hash = entrypoint.getUserOpHash(op);
-        // Sign the user operation
-        op.signature = _ethSign(hash, eoa);
-        _executeUserOp(op);
-    }
-
-    /// @notice Tests UserOperation validation fails with invalid eth-signed message
-    /// @dev Verifies rejection of UserOp with unauthorized eth-signed signature
-    function test_validateUserOp_ethSignedMessage_revertIf_invalidSigner() public withRequiredModules {
-        vm.skip(true);
-        // Create UserOp with ResourceLock
-        (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
-            _createUserOpWithResourceLock(address(scw), sessionKey, true);
-        // Get hash of UserOp
-        bytes32 hash = entrypoint.getUserOpHash(op);
-        // Sign the user operation
-        op.signature = _ethSign(hash, sessionKey);
-        _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
-        _executeUserOp(op);
     }
 
     /// @notice Tests UserOperation validation with direct merkle signature

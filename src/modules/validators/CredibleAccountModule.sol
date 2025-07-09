@@ -11,6 +11,7 @@ import "ERC4337/core/Helpers.sol";
 import "ERC7579/libs/ModeLib.sol";
 import "ERC7579/libs/ExecutionLib.sol";
 import {ICredibleAccountModule} from "../../interfaces/ICredibleAccountModule.sol";
+import {IResourceLockValidator} from "../../interfaces/IResourceLockValidator.sol";
 import {IHookMultiPlexer} from "../../interfaces/IHookMultiPlexer.sol";
 import "../../common/Structs.sol";
 
@@ -23,6 +24,9 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     //////////////////////////////////////////////////////////////*/
 
     error CredibleAccountModule_ModuleNotInstalled(address wallet);
+    // NOTE: Added these errors for [M-01]
+    error CredibleAccountModule_InvalidResourceLockValidator();
+    error CredibleAccountModule_ResourceLockValidatorNotSet();
     error CredibleAccountModule_MaxSessionKeysReached(address wallet);
     error CredibleAccountModule_InvalidWallet(address wallet, address caller);
     error CredibleAccountModule_InvalidSessionKey();
@@ -31,6 +35,8 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     error CredibleAccountModule_InvalidValidUntil(uint48 validUntil);
     error CredibleAccountModule_InvalidChainId(uint256 chainId);
     error CredibleAccountModule_SessionKeyDoesNotExist(address session);
+    // NOTE: Added this error for [M-01]
+    error CredibleAccountModule_SessionKeyNotAuthorized();
     error CredibleAccountModule_LockedTokensNotClaimed(address sessionKey);
     error CredibleAccountModule_InvalidHookMultiPlexer();
     error CredibleAccountModule_InvalidOnInstallData(address wallet);
@@ -52,7 +58,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     mapping(address wallet => Initialization) public moduleInitialized;
     mapping(address wallet => address[] keys) public walletSessionKeys;
     mapping(address sessionKey => address wallet) public sessionKeyToWallet;
-    mapping(address sessionKey => mapping(address wallet => SessionData)) public sessionData;
+    mapping(address wallet => mapping(address sessionKey => SessionData)) public sessionData;
     mapping(address sessionKey => LockedToken[]) public lockedTokens;
 
     /*//////////////////////////////////////////////////////////////
@@ -60,6 +66,8 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     //////////////////////////////////////////////////////////////*/
 
     IHookMultiPlexer public immutable hookMultiPlexer;
+    // NOTE: Added this for [M-01] (circular dependency requirement)
+    address public resourceLockValidator;
     uint256 public constant MAX_SESSION_KEYS = 10;
     uint256 public constant MAX_LOCKED_TOKENS = 5;
     uint256 public constant DISABLE_SESSION_KEY_TIME_BUFFER = 30 seconds;
@@ -82,34 +90,41 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     }
 
     /*//////////////////////////////////////////////////////////////
+                                SETUP
+    //////////////////////////////////////////////////////////////*/
+
+    // NOTE: Added this function for [M-01]
+    function setResourceLockValidator(address _resourceLockValidator) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (_resourceLockValidator == address(0)) {
+            revert CredibleAccountModule_InvalidResourceLockValidator();
+        }
+        resourceLockValidator = _resourceLockValidator;
+    }
+
+    /*//////////////////////////////////////////////////////////////
                        ACCESS CONTROL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Grants the SESSION_KEY_DISABLER role to an account.
-    /// @param account The address of the account to grant the role to.
+    // @inheritdoc ICredibleAccountModule
     function grantSessionKeyDisablerRole(address account) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _grantRole(SESSION_KEY_DISABLER, account);
     }
 
-    /// @notice Revokes the SESSION_KEY_DISABLER role from an account.
-    /// @param account The address of the account to revoke the role from.
+    // @inheritdoc ICredibleAccountModule
     function revokeSessionKeyDisablerRole(address account) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _revokeRole(SESSION_KEY_DISABLER, account);
     }
 
-    /// @notice Checks if an account has the SESSION_KEY_DISABLER role.
-    /// @param account The address of the account to check.
-    /// @return True if the account has the SESSION_KEY_DISABLER role, false otherwise.
+    // @inheritdoc ICredibleAccountModule
     function hasSessionKeyDisablerRole(address account) external view returns (bool) {
         return hasRole(SESSION_KEY_DISABLER, account);
     }
 
-    /// @notice Returns the addresses of accounts with the SESSION_KEY_DISABLER role.
-    /// @return addresses The addresses of accounts with the SESSION_KEY_DISABLER role.
+    // @inheritdoc ICredibleAccountModule
     function getSessionKeyDisablers() external view returns (address[] memory addresses) {
         uint256 count = getRoleMemberCount(SESSION_KEY_DISABLER);
         addresses = new address[](count);
-        for (uint256 i = 0; i < count; i++) {
+        for (uint256 i; i < count; ++i) {
             addresses[i] = getRoleMember(SESSION_KEY_DISABLER, i);
         }
     }
@@ -120,8 +135,9 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
 
     // @inheritdoc ICredibleAccountModule
     function enableSessionKey(bytes calldata _resourceLock) external {
-        if (walletSessionKeys[msg.sender].length >= MAX_SESSION_KEYS) {
-            revert CredibleAccountModule_MaxSessionKeysReached(msg.sender);
+        // NOTE: Added this check for [M-01]
+        if (resourceLockValidator == address(0)) {
+            revert CredibleAccountModule_ResourceLockValidatorNotSet();
         }
         ResourceLock memory rl = abi.decode(_resourceLock, (ResourceLock));
         if (rl.smartWallet != msg.sender) {
@@ -136,13 +152,17 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         if (rl.validAfter == 0) {
             revert CredibleAccountModule_InvalidValidAfter();
         }
-        if (rl.validUntil <= rl.validAfter || rl.validUntil <= block.timestamp) {
+        if (rl.validUntil <= rl.validAfter || rl.validUntil < block.timestamp) {
             revert CredibleAccountModule_InvalidValidUntil(rl.validUntil);
         }
         if (rl.chainId != 0 && rl.chainId != block.chainid) {
             revert CredibleAccountModule_InvalidChainId(rl.chainId);
         }
-        sessionData[rl.sessionKey][msg.sender] =
+        // NOTE: Added this check for [M-01]
+        if (!IResourceLockValidator(resourceLockValidator).isSessionKeyAuthorized(msg.sender, rl.sessionKey)) {
+            revert CredibleAccountModule_SessionKeyNotAuthorized();
+        }
+        sessionData[msg.sender][rl.sessionKey] =
             SessionData({sessionKey: rl.sessionKey, validAfter: rl.validAfter, validUntil: rl.validUntil, live: true});
         if (rl.tokenData.length > MAX_LOCKED_TOKENS) {
             revert CredibleAccountModule_MaxLockedTokensReached(rl.sessionKey);
@@ -154,6 +174,8 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         }
         walletSessionKeys[msg.sender].push(rl.sessionKey);
         sessionKeyToWallet[rl.sessionKey] = msg.sender;
+        // NOTE: Added this call for [M-01]
+        IResourceLockValidator(resourceLockValidator).removeSessionKeyAuthorization(msg.sender, rl.sessionKey);
         emit CredibleAccountModule_SessionKeyEnabled(rl.sessionKey, msg.sender);
     }
 
@@ -164,17 +186,17 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
             revert CredibleAccountModule_UnauthorizedDisabler(msg.sender);
         }
         address targetWallet = sessionOwner != address(0) ? sessionOwner : msg.sender;
-        if (sessionData[_sessionKey][targetWallet].validUntil == 0) {
+        if (sessionData[targetWallet][_sessionKey].validUntil == 0) {
             revert CredibleAccountModule_SessionKeyDoesNotExist(_sessionKey);
         }
         if (
-            sessionData[_sessionKey][targetWallet].validUntil >= block.timestamp + DISABLE_SESSION_KEY_TIME_BUFFER
+            sessionData[targetWallet][_sessionKey].validUntil >= block.timestamp + DISABLE_SESSION_KEY_TIME_BUFFER
                 && !isSessionClaimed(_sessionKey)
         ) {
             revert CredibleAccountModule_LockedTokensNotClaimed(_sessionKey);
         }
         _removeSessionKey(_sessionKey, targetWallet);
-        emit CredibleAccountModule_SessionKeyDisabled(_sessionKey, msg.sender);
+        emit CredibleAccountModule_SessionKeyDisabled(_sessionKey, targetWallet);
     }
 
     // @inheritdoc ICredibleAccountModule
@@ -186,7 +208,8 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
                 continue; // Skip non-existent keys instead of reverting
             }
             // Check if session has expired or all tokens are claimed
-            bool isExpired = block.timestamp > sessionData[sessionKey][targetWallet].validUntil;
+            bool isExpired =
+                block.timestamp > sessionData[targetWallet][sessionKey].validUntil - DISABLE_SESSION_KEY_TIME_BUFFER;
             bool allTokensClaimed = isSessionClaimed(sessionKey);
 
             if (isExpired || allTokensClaimed) {
@@ -199,7 +222,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     // @inheritdoc ICredibleAccountModule
     function emergencyDisableSessionKey(address _sessionKey) external onlyRole(DEFAULT_ADMIN_ROLE) {
         address targetWallet = sessionKeyToWallet[_sessionKey];
-        if (targetWallet == address(0) || sessionData[_sessionKey][targetWallet].validUntil == 0) {
+        if (targetWallet == address(0) || sessionData[targetWallet][_sessionKey].validUntil == 0) {
             revert CredibleAccountModule_SessionKeyDoesNotExist(_sessionKey);
         }
         _removeSessionKey(_sessionKey, targetWallet);
@@ -237,7 +260,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
 
     // @inheritdoc ICredibleAccountModule
     function getSessionKeyData(address _sessionKey) external view returns (SessionData memory) {
-        return sessionData[_sessionKey][msg.sender];
+        return sessionData[msg.sender][_sessionKey];
     }
 
     // @inheritdoc ICredibleAccountModule
@@ -274,6 +297,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         return true;
     }
 
+    // @inheritdoc ICredibleAccountModule
     function isSessionExpired(address _sessionKey, address _wallet) public returns (bool) {
         return _isSessionKeyExpired(_sessionKey, _wallet);
     }
@@ -294,10 +318,13 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         if (userOp.signature.length != 65) return VALIDATION_FAILED;
         bytes memory sig = _digestSignature(userOp.signature);
         address sessionKeySigner = ECDSA.recover(ECDSA.toEthSignedMessageHash(userOpHash), sig);
+        SessionData memory sd = sessionData[msg.sender][sessionKeySigner];
+        if (sd.sessionKey != sessionKeySigner) {
+            return VALIDATION_FAILED;
+        }
         if (!_validateSessionKeyParams(sessionKeySigner, userOp)) {
             return VALIDATION_FAILED;
         }
-        SessionData memory sd = sessionData[sessionKeySigner][msg.sender];
         return _packValidationData(false, sd.validUntil, sd.validAfter);
     }
 
@@ -343,7 +370,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
 
     // @inheritdoc ICredibleAccountModule
     function onUninstall(bytes calldata data) external override {
-        if (data.length < 32) {
+        if (data.length < 64) {
             revert CredibleAccountModule_InvalidOnUnInstallData(msg.sender);
         }
         uint256 moduleType;
@@ -367,7 +394,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
             moduleInitialized[sender].validatorInitialized = false;
             for (uint256 i; i < sessionKeys.length; ++i) {
                 address sessionKey = sessionKeys[i];
-                delete sessionData[sessionKey][sender];
+                delete sessionData[sender][sessionKey];
                 delete lockedTokens[sessionKey];
                 delete sessionKeyToWallet[sessionKey];
             }
@@ -412,7 +439,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     /// @param _sessionKey The session key address to remove
     /// @param _wallet The wallet address associated with the session key
     function _removeSessionKey(address _sessionKey, address _wallet) internal {
-        delete sessionData[_sessionKey][_wallet];
+        delete sessionData[_wallet][_sessionKey];
         delete lockedTokens[_sessionKey];
         delete sessionKeyToWallet[_sessionKey];
         address[] storage keys = walletSessionKeys[_wallet];
@@ -454,9 +481,8 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         Execution[] calldata execs = ExecutionLib.decodeBatch(_callData[EXEC_OFFSET:]);
         for (uint256 i; i < execs.length; ++i) {
             (bytes4 selector,, uint256 amount) = _digestClaimTx(execs[i].callData);
-            if (!_isValidSelector(selector) || !_validateTokenData(_sessionKey, _wallet, amount, execs[i].target)) {
-                return false;
-            }
+            if (selector == bytes4(0)) return false;
+            if (!_validateTokenData(_sessionKey, _wallet, amount, execs[i].target)) return false;
         }
         return true;
     }
@@ -477,7 +503,10 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         LockedToken[] storage tokens = lockedTokens[_sessionKey];
         for (uint256 i; i < tokens.length; ++i) {
             if (tokens[i].token == _token) {
-                if (_walletTokenBalance(_wallet, _token) >= _amount && _amount == tokens[i].lockedAmount) {
+                if (
+                    _walletTokenBalance(_wallet, _token) >= _amount && _amount == tokens[i].lockedAmount
+                        && tokens[i].claimedAmount == 0
+                ) {
                     tokens[i].claimedAmount += _amount;
                     return true;
                 }
@@ -496,7 +525,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         address[] memory tempKeys = new address[](allSessionKeys.length);
         uint256 count;
         for (uint256 i; i < allSessionKeys.length; ++i) {
-            SessionData memory sd = sessionData[allSessionKeys[i]][_wallet];
+            SessionData memory sd = sessionData[_wallet][allSessionKeys[i]];
             bool isLive = sd.live && sd.validUntil >= block.timestamp;
             // If _getLiveKeys is true, add live keys; if false, add expired keys
             if ((_getLiveKeys && isLive) || (!_getLiveKeys && !isLive)) {
@@ -518,7 +547,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     /// @return bool Returns true if the session key is expired or not live, false otherwise
 
     function _isSessionKeyExpired(address _sessionKey, address _wallet) internal returns (bool) {
-        SessionData storage sd = sessionData[_sessionKey][_wallet];
+        SessionData storage sd = sessionData[_wallet][_sessionKey];
         if (!sd.live) {
             return true;
         } else if (sd.validUntil < block.timestamp && sd.live) {
@@ -588,11 +617,6 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
             uint256 preCheckLocked = preCheckBalances[i].amount;
             uint256 walletBalance = _walletTokenBalance(sender, token);
             uint256 postCheckLocked = _retrieveLockedBalance(sender, token);
-            // TODO: check this
-            // if (walletBalance == 0 && preCheckLocked - postCheckLocked != 0) {
-            //     // Handles scenario of claim of complete balance
-            //     revert CredibleAccountModule_InsufficientUnlockedBalance(token);
-            // }
             if (walletBalance < preCheckLocked && walletBalance < postCheckLocked && walletBalance != 0) {
                 revert CredibleAccountModule_InsufficientUnlockedBalance(token);
             }

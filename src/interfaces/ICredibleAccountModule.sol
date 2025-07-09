@@ -11,7 +11,7 @@ import "../common/Structs.sol";
 /// @notice This interface defines the functions and events of the CredibleAccountModule contract.
 interface ICredibleAccountModule is IValidator, IHook {
     /*//////////////////////////////////////////////////////////////
-                               STRUCTS
+                                STRUCTS
     //////////////////////////////////////////////////////////////*/
 
     struct Initialization {
@@ -69,8 +69,14 @@ interface ICredibleAccountModule is IValidator, IHook {
     event SessionKeyDisablerRoleRevoked(address indexed account, address indexed admin);
 
     /*//////////////////////////////////////////////////////////////
-                              FUNCTIONS
+                                FUNCTIONS
     //////////////////////////////////////////////////////////////*/
+
+    /// @notice Sets the ResourceLockValidator contract address
+    /// @dev Only callable by accounts with DEFAULT_ADMIN_ROLE
+    /// @dev Required for establishing circular dependency between ResourceLockValidator and CredibleAccountModule
+    /// @param _resourceLockValidator The address of the ResourceLockValidator contract
+    function setResourceLockValidator(address _resourceLockValidator) external;
 
     /// @notice Grants the SESSION_KEY_DISABLER role to an account.
     /// @param account The address of the account to grant the role to.
@@ -90,8 +96,8 @@ interface ICredibleAccountModule is IValidator, IHook {
     function getSessionKeyDisablers() external view returns (address[] memory addresses);
 
     /// @notice Enables a new session key for the caller's wallet.
-    /// @param _sessionData The encoded session data containing the session key address, token address, interface ID, function selector, spending limit, valid after timestamp, and valid until timestamp.
-    function enableSessionKey(bytes calldata _sessionData) external;
+    /// @param _resourceLock The encoded ResourceLock data containing the session key parameters including token locks.
+    function enableSessionKey(bytes calldata _resourceLock) external;
 
     /// @notice Disables a session key for the caller's wallet.
     /// @param _session The address of the session key to disable.
@@ -154,6 +160,13 @@ interface ICredibleAccountModule is IValidator, IHook {
     /// @return bool True if all tokens are claimed, false otherwise
     function isSessionClaimed(address _sessionKey) external view returns (bool);
 
+    /// @notice Checks if a session key has expired for a specific wallet
+    /// @dev This function also updates the 'live' status of a session key if it has expired
+    /// @param _sessionKey The address of the session key to check
+    /// @param _wallet The address of the wallet associated with the session key
+    /// @return bool True if the session key is expired or not live, false otherwise
+    function isSessionExpired(address _sessionKey, address _wallet) external returns (bool);
+
     /// @notice Validates a user operation using a session key.
     /// @param userOp The packed user operation.
     /// @param userOpHash The hash of the user operation.
@@ -162,16 +175,16 @@ interface ICredibleAccountModule is IValidator, IHook {
         external
         returns (uint256 validationData);
 
-    /// @notice Checks if the module type matches the validator module type.
+    /// @notice Checks if the module type matches the validator or hook module type.
     /// @param moduleTypeId The module type ID to check.
-    /// @return True if the module type matches the validator module type, false otherwise.
+    /// @return True if the module type matches the validator or hook module type, false otherwise.
     function isModuleType(uint256 moduleTypeId) external pure returns (bool);
 
-    /// @notice Placeholder function for module installation.
+    /// @notice Function for module installation.
     /// @param data The data to pass during installation.
     function onInstall(bytes calldata data) external;
 
-    /// @notice Placeholder function for module uninstallation.
+    /// @notice Function for module uninstallation.
     /// @param data The data to pass during uninstallation.
     function onUninstall(bytes calldata data) external;
 
@@ -188,7 +201,7 @@ interface ICredibleAccountModule is IValidator, IHook {
         view
         returns (bytes4);
 
-    /// @notice Reverts with a "NotImplemented" error.
+    /// @notice Checks if the module is initialized for a smart account
     /// @param smartAccount The address of the smart account.
     /// @return True if the smart account is initialized, false otherwise.
     function isInitialized(address smartAccount) external view returns (bool);

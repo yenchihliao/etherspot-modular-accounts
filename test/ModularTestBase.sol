@@ -147,7 +147,7 @@ contract ModularTestBase is BootstrapUtil, Test {
         erc1155fb = new ERC1155FallbackHandler();
         hmp = new HookMultiPlexer();
         cam = new CredibleAccountModule(deployer.pub, address(hmp));
-        rlv = new ResourceLockValidator(deployer.pub, address(cam));
+        rlv = new ResourceLockValidator(deployer.pub);
         vm.label({account: address(impl), newLabel: "ModularEtherspotWallet"});
         vm.label({account: address(factory), newLabel: "ModularEtherspotWalletFactory"});
         vm.label({account: address(moecdsav), newLabel: "MultipleOwnerECDSAValidator"});
@@ -157,6 +157,9 @@ contract ModularTestBase is BootstrapUtil, Test {
         vm.label({account: address(hmp), newLabel: "HookMultiPlexer"});
         vm.label({account: address(cam), newLabel: "CredibleAccountModule"});
         vm.label({account: address(rlv), newLabel: "ResourceLockValidator"});
+        // Setup CAM and RLV
+        cam.setResourceLockValidator(address(rlv));
+        rlv.setCredibleAccountModule(address(cam));
         // Tokens
         usdc = new TestUSDC();
         usdt = new TestERC20();

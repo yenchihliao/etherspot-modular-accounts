@@ -9,6 +9,7 @@ import {CALLTYPE_SINGLE} from "ERC7579/libs/ModeLib.sol";
 import "ERC7579/test/dependencies/EntryPoint.sol";
 import {ModularEtherspotWallet} from "../../../../src/wallet/ModularEtherspotWallet.sol";
 import {CredibleAccountModuleHarness} from "../../../harnesses/CredibleAccountModuleHarness.sol";
+import {CredibleAccountModule} from "../../../../src/modules/validators/CredibleAccountModule.sol";
 import "../../../../src/common/Enums.sol";
 import "../../../../src/common/Structs.sol";
 import "../../../ModularTestBase.sol";
@@ -42,6 +43,7 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
         _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(moecdsav), hex"");
         _installHookViaMultiplexer(scw, address(cam), HookType.GLOBAL);
         _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(cam), abi.encode(MODULE_TYPE_VALIDATOR));
+        _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(rlv), abi.encode(eoa.pub));
         vm.startPrank(address(scw));
         _;
     }
@@ -67,7 +69,7 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
         vm.stopPrank();
     }
 
-    function _createResourceLock(address _scw) internal view returns (bytes memory) {
+    function _createResourceLock(address _scw) internal view returns (ResourceLock memory) {
         TokenData[] memory td = new TokenData[](tokens.length);
         for (uint256 i; i < tokens.length; ++i) {
             td[i] = TokenData(tokens[i], amounts[i]);
@@ -81,12 +83,54 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
             bidHash: DUMMY_BID_HASH,
             tokenData: td
         });
-        return abi.encode(rl);
+        return rl;
+    }
+
+    function _buildResourceLockHash(ResourceLock memory _lock) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                _lock.chainId,
+                _lock.smartWallet,
+                _lock.sessionKey,
+                _lock.validAfter,
+                _lock.validUntil,
+                _lock.bidHash,
+                abi.encode(_lock.tokenData)
+            )
+        );
     }
 
     function _enableSessionKey(address _scw) internal {
-        bytes memory rl = _createResourceLock(_scw);
-        cam.enableSessionKey(rl);
+        ResourceLock memory rl = _createResourceLock(_scw);
+        bytes memory enableSessionKeyData =
+            abi.encodeWithSelector(CredibleAccountModule.enableSessionKey.selector, abi.encode(rl));
+        bytes memory opCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, enableSessionKeyData))
+        );
+        // Use the updated signature creation function
+        (PackedUserOperation memory op, bytes32[] memory proof, bytes32 root) =
+            _createUserOpWithResourceLock(address(scw), eoa, address(rlv), opCalldata, rl, true);
+        bytes memory sig = _sign(root, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(root), _packProofForSignature(proof));
+        _executeUserOp(op);
+    }
+
+    function _createUserOpWithResourceLock(
+        address _scw,
+        User memory _user,
+        address _validator,
+        bytes memory _callData,
+        ResourceLock memory _rl,
+        bool _validProof
+    ) internal returns (PackedUserOperation memory op, bytes32[] memory proof, bytes32 root) {
+        // Create base UserOp
+        op = _createUserOp(_scw, address(rlv));
+        // Create ResourceLock and generate proof
+        (proof, root,) = getTestProof(_buildResourceLockHash(_rl), _validProof);
+        // Set up calldata
+        op.callData = _callData;
+        return (op, proof, root);
     }
 
     function _createTokenTransferExecution(address _recipient, uint256 _amount) internal pure returns (bytes memory) {

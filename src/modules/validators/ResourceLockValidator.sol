@@ -3,6 +3,7 @@ pragma solidity 0.8.23;
 
 import {ECDSA} from "solady/src/utils/ECDSA.sol";
 import {MerkleProofLib} from "solady/src/utils/MerkleProofLib.sol";
+import {SignatureCheckerLib} from "solady/src/utils/SignatureCheckerLib.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
 import "ERC7579/interfaces/IERC7579Account.sol";
@@ -24,13 +25,15 @@ contract ResourceLockValidator is IResourceLockValidator {
     using ModeLib for ModeCode;
     using ExecutionLib for bytes;
     using EnumerableSet for EnumerableSet.Bytes32Set;
+    using EnumerableSet for EnumerableSet.AddressSet;
+    using SignatureCheckerLib for address;
 
     /*//////////////////////////////////////////////////////////////
                               VARIABLES
     //////////////////////////////////////////////////////////////*/
 
     address public immutable owner;
-    ICredibleAccountModule public credibleAccountModule;
+    address public credibleAccountModule;
 
     /*//////////////////////////////////////////////////////////////
                                STRUCTS
@@ -46,6 +49,7 @@ contract ResourceLockValidator is IResourceLockValidator {
     //////////////////////////////////////////////////////////////*/
 
     mapping(address => ValidatorStorage) public validatorStorage;
+    mapping(address scw => EnumerableSet.AddressSet) private authorizedSessionKeys;
     mapping(address wallet => EnumerableSet.Bytes32Set) private consumedBidHashes;
 
     /*//////////////////////////////////////////////////////////////
@@ -56,6 +60,7 @@ contract ResourceLockValidator is IResourceLockValidator {
     error RLV_NotInstalled(address scw);
     error RLV_InvalidOwner();
     error RLV_InvalidCredibleAccountModule();
+    error RLV_CredibleAccountModuleNotSet();
     error RLV_InvalidDataLength();
     error RLV_ResourceLockHashNotInProof();
     error RLV_InvalidTarget(address target);
@@ -64,6 +69,7 @@ contract ResourceLockValidator is IResourceLockValidator {
     error RLV_InvalidCallType();
     error RLV_InvalidBatchLength(uint256 batchLength);
     error RLV_BidHashAlreadyConsumed(bytes32 bidHash);
+    error RLV_SessionKeyAlreadyAuthorized(address sessionKey);
     error RLV_InvalidUserOpSender();
 
     /*//////////////////////////////////////////////////////////////
@@ -75,26 +81,29 @@ contract ResourceLockValidator is IResourceLockValidator {
         _;
     }
 
+    modifier onlyCredibleAccountModuleOrOwner() {
+        if (msg.sender == credibleAccountModule && credibleAccountModule == address(0)) {
+            revert RLV_CredibleAccountModuleNotSet();
+        }
+        if (msg.sender != credibleAccountModule && msg.sender != owner) revert RLV_InvalidCredibleAccountModule();
+        _;
+    }
+
     /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
     // TODO: Test credible account module address revert
-    constructor(address _owner, address _credibleAccountModule) {
-        if (_owner == address(0)) {
-            revert RLV_InvalidOwner();
-        }
-        if (_credibleAccountModule == address(0)) {
-            revert RLV_InvalidCredibleAccountModule();
-        }
+    constructor(address _owner) {
+        if (_owner == address(0)) revert RLV_InvalidOwner();
         owner = _owner;
-        credibleAccountModule = ICredibleAccountModule(_credibleAccountModule);
     }
 
     /*//////////////////////////////////////////////////////////////
                       PUBLIC/EXTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
+    // @inheritdoc IResourceLockValidator
     function onInstall(bytes calldata _data) external override {
         if (_data.length < 20) revert RLV_InvalidDataLength();
         address wallet = address(bytes20(_data[_data.length - 20:]));
@@ -106,6 +115,7 @@ contract ResourceLockValidator is IResourceLockValidator {
         emit RLV_ValidatorEnabled(msg.sender, wallet);
     }
 
+    // @inheritdoc IResourceLockValidator
     function onUninstall(bytes calldata) external override {
         if (!_isInitialized(msg.sender)) revert RLV_NotInstalled(msg.sender);
         delete consumedBidHashes[msg.sender];
@@ -113,30 +123,20 @@ contract ResourceLockValidator is IResourceLockValidator {
         emit RLV_ValidatorDisabled(msg.sender);
     }
 
+    // @inheritdoc IResourceLockValidator
     function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash)
         external
         override
         returns (uint256)
     {
+        // NOTE: Added this for [M-01]
+        if (credibleAccountModule == address(0)) revert RLV_CredibleAccountModuleNotSet();
         bytes calldata signature = userOp.signature;
         address walletOwner = validatorStorage[msg.sender].owner;
         // TODO: Need to check this validation on live network via bundler
         if (msg.sender != userOp.sender) {
             revert RLV_InvalidUserOpSender();
         }
-        // NOTE: check redundant code with auditor
-        // Standard signature length - no proof packing
-        // if (signature.length == 65) {
-        //     // standard ECDSA recover
-        //     if (walletOwner == ECDSA.recover(userOpHash, signature)) {
-        //         return SIG_VALIDATION_SUCCESS;
-        //     }
-        //     bytes32 sigHash = ECDSA.toEthSignedMessageHash(userOpHash);
-        //     address recoveredSigner = ECDSA.recover(sigHash, signature);
-        //     if (walletOwner != recoveredSigner) return SIG_VALIDATION_FAILED;
-        //     return SIG_VALIDATION_SUCCESS;
-        // }
-        // or if signature.length >= 65 (standard signature length + proof packing)
         ResourceLock memory rl = _getResourceLock(userOp.callData);
         // Nonce validation
         bytes memory ecdsaSignature = signature[0:65];
@@ -162,18 +162,28 @@ contract ResourceLockValidator is IResourceLockValidator {
         if (consumedBidHashes[userOp.sender].contains(rl.bidHash)) {
             revert RLV_BidHashAlreadyConsumed(rl.bidHash);
         }
+        if (authorizedSessionKeys[userOp.sender].contains(rl.sessionKey)) {
+            revert RLV_SessionKeyAlreadyAuthorized(rl.sessionKey);
+        }
         // check proof is signed
-        if (walletOwner == ECDSA.recover(root, ecdsaSignature)) {
+        if (walletOwner.isValidSignatureNow(root, ecdsaSignature)) {
+            // NOTE: Added this for [M-01]
+            authorizedSessionKeys[userOp.sender].add(rl.sessionKey);
             consumedBidHashes[userOp.sender].add(rl.bidHash);
             return SIG_VALIDATION_SUCCESS;
         }
         bytes32 sigRoot = ECDSA.toEthSignedMessageHash(root);
         address recoveredMSigner = ECDSA.recover(sigRoot, ecdsaSignature);
-        if (walletOwner != recoveredMSigner) return SIG_VALIDATION_FAILED;
-        consumedBidHashes[userOp.sender].add(rl.bidHash);
-        return SIG_VALIDATION_SUCCESS;
+        if (walletOwner.isValidSignatureNow(sigRoot, ecdsaSignature)) {
+            // NOTE: Added this for [M-01]
+            authorizedSessionKeys[userOp.sender].add(rl.sessionKey);
+            consumedBidHashes[userOp.sender].add(rl.bidHash);
+            return SIG_VALIDATION_SUCCESS;
+        }
+        return SIG_VALIDATION_FAILED;
     }
 
+    // @inheritdoc IResourceLockValidator
     function isValidSignatureWithSender(address sender, bytes32 hash, bytes calldata signature)
         external
         view
@@ -181,16 +191,6 @@ contract ResourceLockValidator is IResourceLockValidator {
         returns (bytes4)
     {
         address walletOwner = validatorStorage[msg.sender].owner;
-        // NOTE: check redundant code with auditor
-        // if (signature.length == 65) {
-        //     if (walletOwner == ECDSA.recover(hash, signature)) {
-        //         return ERC1271_MAGIC_VALUE;
-        //     }
-        //     bytes32 sigHash = ECDSA.toEthSignedMessageHash(hash);
-        //     address recoveredSigner = ECDSA.recover(sigHash, signature);
-        //     if (walletOwner != recoveredSigner) return ERC1271_INVALID;
-        //     return ERC1271_MAGIC_VALUE;
-        // }
         bytes memory ecdsaSig = signature[0:65];
         bytes32 root = bytes32(signature[65:97]);
         bytes32[] memory proof;
@@ -212,32 +212,56 @@ contract ResourceLockValidator is IResourceLockValidator {
             revert RLV_ResourceLockHashNotInProof();
         }
         // simple ecdsa verification
-        if (walletOwner == ECDSA.recover(root, ecdsaSig)) {
+        if (walletOwner.isValidSignatureNow(root, ecdsaSig)) {
             return ERC1271_MAGIC_VALUE;
         }
         bytes32 sigRoot = ECDSA.toEthSignedMessageHash(root);
-        address recoveredMSigner = ECDSA.recover(sigRoot, ecdsaSig);
-        if (walletOwner != recoveredMSigner) return ERC1271_INVALID;
-        return ERC1271_MAGIC_VALUE;
+        if (walletOwner.isValidSignatureNow(sigRoot, ecdsaSig)) {
+            return ERC1271_MAGIC_VALUE;
+        }
+        return ERC1271_INVALID;
     }
 
+    // @inheritdoc IResourceLockValidator
     function getCredibleAccountModule() external view returns (address) {
-        return address(credibleAccountModule);
+        return credibleAccountModule;
     }
 
+    // @inheritdoc IResourceLockValidator
     function setCredibleAccountModule(address _credibleAccountModule) external onlyOwner {
         if (_credibleAccountModule == address(0)) revert RLV_InvalidCredibleAccountModule();
-        credibleAccountModule = ICredibleAccountModule(_credibleAccountModule);
+        credibleAccountModule = _credibleAccountModule;
     }
 
+    // @inheritdoc IResourceLockValidator
     function isConsumedBidHash(address _wallet, bytes32 _bidHash) external view returns (bool) {
         return consumedBidHashes[_wallet].contains(_bidHash);
     }
 
+    // @inheritdoc IResourceLockValidator
+    function isSessionKeyAuthorized(address _scw, address _sessionKey) external view returns (bool) {
+        return authorizedSessionKeys[_scw].contains(_sessionKey);
+    }
+
+    // @inheritdoc IResourceLockValidator
+    function removeSessionKeyAuthorization(address _scw, address _sessionKey)
+        external
+        onlyCredibleAccountModuleOrOwner
+    {
+        authorizedSessionKeys[_scw].remove(_sessionKey);
+    }
+
+    // @inheritdoc IResourceLockValidator
+    function getAuthorizedSessionKeys(address _scw) external view returns (address[] memory) {
+        return authorizedSessionKeys[_scw].values();
+    }
+
+    // @inheritdoc IResourceLockValidator
     function isModuleType(uint256 typeID) external pure override returns (bool) {
         return typeID == MODULE_TYPE_VALIDATOR;
     }
 
+    // @inheritdoc IResourceLockValidator
     function isInitialized(address smartAccount) external view override returns (bool) {
         return _isInitialized(smartAccount);
     }
@@ -246,15 +270,29 @@ contract ResourceLockValidator is IResourceLockValidator {
                       INTERNAL/PRIVATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
+    /// @notice Checks if the validator is initialized for a given smart account
+    /// @dev Returns the enabled status from the validator storage mapping
+    /// @param _smartAccount The smart account address to check initialization for
+    /// @return True if the validator is enabled for the smart account, false otherwise
     function _isInitialized(address _smartAccount) internal view returns (bool) {
         return validatorStorage[_smartAccount].enabled;
     }
 
+    /// @notice Extracts array offset and length information from encoded call data
+    /// @dev Parses specific byte positions to retrieve dynamic array metadata for token data
+    /// @param _data The encoded call data containing array information
+    /// @return offset The offset position where the array data begins
+    /// @return length The number of elements in the array
     function _getArrayInfo(bytes calldata _data) internal pure returns (uint256 offset, uint256 length) {
         offset = uint256(bytes32(_data[292:324]));
         length = uint256(bytes32(_data[100 + offset:132 + offset]));
     }
 
+    /// @notice Extracts a single TokenData struct from encoded call data at a specific position
+    /// @dev Decodes token address and amount from 64 bytes of data (32 bytes each)
+    /// @param _data The encoded call data containing token information
+    /// @param _basePos The starting position in the data to read from
+    /// @return TokenData struct containing the token address and amount
     function _getSingleTokenData(bytes calldata _data, uint256 _basePos) internal pure returns (TokenData memory) {
         return TokenData({
             token: address(uint160(uint256(bytes32(_data[_basePos:_basePos + 32])))),
@@ -262,6 +300,12 @@ contract ResourceLockValidator is IResourceLockValidator {
         });
     }
 
+    /// @notice Dynamically extracts resource lock data from user operation call data
+    /// @dev Parses call data to extract ResourceLock parameters for both single and batch executions
+    /// @param _callData The call data from the user operation to parse
+    /// @return ResourceLock struct containing extracted session key parameters
+    /// @custom:validation Validates call data format, target address, value, and function selector
+    /// @custom:supports CALLTYPE_SINGLE and CALLTYPE_BATCH execution modes
     function _getResourceLock(bytes calldata _callData) internal view returns (ResourceLock memory) {
         if (bytes4(_callData[:4]) == IERC7579Account.execute.selector) {
             (CallType calltype,,,) = ModeLib.decode(ModeCode.wrap(bytes32(_callData[4:36])));
@@ -335,13 +379,13 @@ contract ResourceLockValidator is IResourceLockValidator {
                 revert RLV_InvalidCallType();
             }
         }
+        revert RLV_InvalidSelector(bytes4(_callData[:4]));
     }
 
     /// @notice Builds a unique hash for a resource lock
-    /// @dev Combines chain ID, wallet, session key, validity period, token data, and nonce into a single hash
+    /// @dev Combines chain ID, wallet, session key, validity period, token data, and bid hash into a single hash
     /// @param _lock The ResourceLock struct containing all lock parameters
     /// @return bytes32 The unique hash representing this resource lock
-
     function _buildResourceLockHash(ResourceLock memory _lock) internal pure returns (bytes32) {
         return keccak256(
             abi.encode(

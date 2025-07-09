@@ -314,20 +314,17 @@ contract HookMultiPlexer is IHook, IHookMultiPlexer, TrustedForwarder {
     function postCheck(bytes calldata hookData) external override {
         // create the hooks and contexts array
         HookAndContext[] calldata hooksAndContexts;
-
         // decode the hookData
         assembly ("memory-safe") {
             let dataPointer := add(hookData.offset, calldataload(hookData.offset))
             hooksAndContexts.offset := add(dataPointer, 0x20)
             hooksAndContexts.length := calldataload(dataPointer)
         }
-
         // get the length of the hooks
         uint256 length = hooksAndContexts.length;
-        for (uint256 i; i < length; i++) {
-            // cache the hook and context
-            HookAndContext calldata hookAndContext = hooksAndContexts[i];
-            // call postCheck on each hook
+
+        for (uint256 i = length; i > 0; --i) {
+            HookAndContext calldata hookAndContext = hooksAndContexts[i - 1];
             hookAndContext.hook.postCheckSubHook({preCheckContext: hookAndContext.context});
         }
     }

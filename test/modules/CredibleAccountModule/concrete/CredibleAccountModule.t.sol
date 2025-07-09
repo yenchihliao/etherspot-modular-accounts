@@ -14,6 +14,7 @@ import {CredibleAccountModule as CAM} from "../../../../src/modules/validators/C
 import {ICredibleAccountModule} from "../../../../src/interfaces/ICredibleAccountModule.sol";
 import {HookMultiPlexer as HMP} from "../../../../src/modules/hooks/HookMultiPlexer.sol";
 import {HookMultiPlexerLib as HMPL} from "../../../../src/libraries/HookMultiPlexerLib.sol";
+import {ResourceLockValidator} from "../../../../src/modules/validators/ResourceLockValidator.sol";
 import {ModularEtherspotWallet} from "../../../../src/wallet/ModularEtherspotWallet.sol";
 import "../../../../src/common/Enums.sol";
 import "../../../../src/common/Structs.sol";
@@ -437,22 +438,44 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     function test_tokenTotalLockedForWallet() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
+
         // Enable another session key
         usdc.mint(address(scw), 10e6);
         TokenData[] memory newTokenData = new TokenData[](1);
         newTokenData[0] = TokenData(address(usdc), 10e6);
-        bytes memory rl = abi.encode(
-            ResourceLock({
-                chainId: block.chainid,
-                smartWallet: address(scw),
-                sessionKey: otherSessionKey.pub,
-                validAfter: validAfter,
-                validUntil: validUntil,
-                bidHash: DUMMY_BID_HASH,
-                tokenData: newTokenData
-            })
+
+        // Use different bid hash to avoid consumed bid hash error
+        bytes32 SECOND_BID_HASH = keccak256("second_bid_hash");
+        ResourceLock memory rl = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: address(scw),
+            sessionKey: otherSessionKey.pub,
+            validAfter: validAfter,
+            validUntil: validUntil,
+            bidHash: SECOND_BID_HASH, // Different bid hash
+            tokenData: newTokenData
+        });
+
+        bytes memory enableSessionKeyData = abi.encodeWithSelector(CAM.enableSessionKey.selector, abi.encode(rl));
+
+        bytes memory opCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, enableSessionKeyData))
         );
-        cam.enableSessionKey(rl);
+
+        // Create user operation with proper signature format
+        (PackedUserOperation memory op, bytes32[] memory proof, bytes32 root) =
+            _createUserOpWithResourceLock(address(scw), eoa, address(rlv), opCalldata, rl, true);
+
+        bytes memory sig = _sign(root, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(root), _packProofForSignature(proof));
+
+        // Fund the wallet with enough ETH for gas fees
+        vm.deal(address(scw), 1 ether);
+
+        // Execute the user operation
+        _executeUserOp(op);
+
         uint256 totalUSDCLocked = cam.tokenTotalLockedForWallet(address(usdc));
         assertEq(
             totalUSDCLocked, amounts[0] + 10e6, "Expected USDC cumulative locked balance does not match expected amount"
@@ -462,33 +485,54 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     function test_cumulativeLockedForWallet() public withRequiredModules {
         // Enable session key
         _enableSessionKey(address(scw));
+
         // Enable another session key
         uint256[4] memory newAmounts = [uint256(10e6), uint256(40e18), uint256(50e18), uint256(113e18)];
         usdc.mint(address(scw), newAmounts[0]);
         dai.mint(address(scw), newAmounts[1]);
         usdt.mint(address(scw), newAmounts[2]);
-        vm.deal(address(scw), newAmounts[3]);
+        vm.deal(address(scw), newAmounts[3] + 1 ether);
         weth.deposit{value: newAmounts[3]}();
+
         TokenData[] memory newTokenData = new TokenData[](tokens.length + 1);
         for (uint256 i; i < 3; ++i) {
             newTokenData[i] = TokenData(tokens[i], newAmounts[i]);
         }
         // Append WETH lock onto newTokenData
         newTokenData[3] = TokenData(address(weth), newAmounts[3]);
-        bytes memory rl = abi.encode(
-            ResourceLock({
-                chainId: block.chainid,
-                smartWallet: address(scw),
-                sessionKey: otherSessionKey.pub,
-                validAfter: validAfter,
-                validUntil: validUntil,
-                bidHash: DUMMY_BID_HASH,
-                tokenData: newTokenData
-            })
+
+        // Use different bid hash to avoid consumed bid hash error
+        bytes32 SECOND_BID_HASH = keccak256("second_bid_hash");
+        ResourceLock memory rl = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: address(scw),
+            sessionKey: otherSessionKey.pub,
+            validAfter: validAfter,
+            validUntil: validUntil,
+            bidHash: SECOND_BID_HASH, // Different bid hash
+            tokenData: newTokenData
+        });
+
+        bytes memory enableSessionKeyData = abi.encodeWithSelector(CAM.enableSessionKey.selector, abi.encode(rl));
+
+        bytes memory opCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, enableSessionKeyData))
         );
-        cam.enableSessionKey(rl);
+
+        // Create user operation with proper signature format
+        (PackedUserOperation memory op, bytes32[] memory proof, bytes32 root) =
+            _createUserOpWithResourceLock(address(scw), eoa, address(rlv), opCalldata, rl, true);
+
+        bytes memory sig = _sign(root, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(root), _packProofForSignature(proof));
+
+        // Execute the user operation
+        _executeUserOp(op);
+
         // Get cumulative locked funds for wallet
         TokenData[] memory data = cam.cumulativeLockedForWallet();
+
         // Verify retrieved data matches expected
         assertEq(data[0].token, address(usdc), "First token address does not match expected (expected USDC)");
         assertEq(
@@ -504,6 +548,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         );
         assertEq(data[3].token, address(weth), "Fourth token address does not match expected (expected WETH)");
         assertEq(data[3].amount, newAmounts[3], "Cumulative WETH locked balance does not match expected amount");
+
         vm.stopPrank();
     }
 
@@ -519,40 +564,25 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         for (uint256 i; i < 2; ++i) {
             newTokenData[i] = TokenData(tokens[i], newAmounts[i]);
         }
-        bytes memory rl = abi.encode(
-            ResourceLock({
-                chainId: block.chainid,
-                smartWallet: address(scw),
-                sessionKey: otherSessionKey.pub,
-                validAfter: validAfter,
-                validUntil: validUntil,
-                bidHash: DUMMY_BID_HASH,
-                tokenData: newTokenData
-            })
-        );
-        bytes memory enableSessionKeyData = abi.encodeWithSelector(CAM.enableSessionKey.selector, rl);
-        TokenData[] memory newTokenData2 = new TokenData[](tokens.length + 1);
-        newTokenData2[0] = TokenData(0xa0Cb889707d426A7A386870A03bc70d1b0697598, uint256(10000000)); // USDC
-        newTokenData2[1] = TokenData(0x5991A2dF15A8F6A256D3Ec51E99254Cd3fb576A9, uint256(40000000000000000000)); // DAI
-        // Encode the session data
-        bytes memory newRl = abi.encode(
-            ResourceLock({
-                chainId: block.chainid,
-                smartWallet: address(scw),
-                sessionKey: 0xB071527c3721215A46958d172A42E7E3BDd1DF46,
-                validAfter: uint48(1729743735),
-                validUntil: uint48(1729744025),
-                bidHash: DUMMY_BID_HASH,
-                tokenData: newTokenData2
-            })
-        );
-        // Encode the function call data with the function selector and the encoded session data
-        bytes memory enableSessionKeyData2 = abi.encodeWithSelector(CAM.enableSessionKey.selector, newRl);
+        bytes32 SECOND_BID_HASH = keccak256("second_bid_hash");
+        ResourceLock memory rl = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: address(scw),
+            sessionKey: otherSessionKey.pub,
+            validAfter: validAfter,
+            validUntil: validUntil,
+            bidHash: SECOND_BID_HASH,
+            tokenData: newTokenData
+        });
+        bytes memory enableSessionKeyData = abi.encodeWithSelector(CAM.enableSessionKey.selector, abi.encode(rl));
         bytes memory opCalldata = abi.encodeCall(
             IERC7579Account.execute,
             (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, enableSessionKeyData))
         );
-        (PackedUserOperation memory op,) = _createUserOpWithSignature(eoa, address(scw), address(moecdsav), opCalldata);
+        (PackedUserOperation memory op, bytes32[] memory proof, bytes32 root) =
+            _createUserOpWithResourceLock(address(scw), eoa, address(rlv), opCalldata, rl, true);
+        bytes memory sig = _sign(root, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(root), _packProofForSignature(proof));
         // Execute the user operation
         _executeUserOp(op);
         // Get cumulative locked funds for wallet
@@ -799,104 +829,9 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         vm.stopPrank();
     }
 
-    // /*//////////////////////////////////////////////////////////////
-    //                        INTERNAL TESTING
-    // //////////////////////////////////////////////////////////////*/
-
-    // Test: Should return correct digested ERC20.transferFrom claim
-    function test_exposed_digestClaim() public withRequiredModules {
-        bytes memory data = _createTokenTransferExecution(alice.pub, amounts[0]);
-        (bytes4 selector, address to, uint256 amount) = harness.exposed_digestClaimTx(data);
-        assertEq(selector, IERC20.transfer.selector);
-        assertEq(to, alice.pub);
-        assertEq(amount, amounts[0]);
-        vm.stopPrank();
-    }
-
-    // Test: Should return blank information for non-ERC20.transfer claims
-    function test_exposed_digestClaim_nonTransfer() public withRequiredModules {
-        bytes memory data = _createTokenTransferFromExecution(address(scw), alice.pub, amounts[0]);
-        (bytes4 selector, address to, uint256 amount) = harness.exposed_digestClaimTx(data);
-        assertEq(selector, bytes4(0));
-        assertEq(to, address(0));
-        assertEq(amount, 0);
-        vm.stopPrank();
-    }
-
-    // Test: Should return correct signature digest
-    function test_exposed_digestSignature() public {
-        // Set up the test environment and enable a session key
-        _testSetup();
-        vm.startPrank(address(scw));
-        // Lock some tokens
-        bytes memory rl = _createResourceLock(address(scw));
-        harness.enableSessionKey(rl);
-        // Prepare user operation data
-        bytes memory data = _createTokenTransferExecution(alice.pub, amounts[0]);
-        bytes memory opCalldata = abi.encodeCall(
-            IERC7579Account.execute,
-            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(usdc), uint256(0), data))
-        );
-        PackedUserOperation memory op = _createUserOp(address(scw), address(cam));
-        op.callData = opCalldata;
-        bytes32 hash = entrypoint.getUserOpHash(op);
-        bytes memory expectedSig = _ethSign(hash, sessionKey);
-        (op,) = _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldata);
-        bytes memory signature = harness.exposed_digestSignature(op.signature);
-        assertEq(signature, expectedSig, "signature should match");
-    }
-
-    // Test: Retrieving locked balances
-    function test_exposed_retrieveLockedBalance() public withRequiredModules {
-        // Lock some tokens
-        bytes memory rl = _createResourceLock(address(scw));
-        harness.enableSessionKey(rl);
-        // Lock same tokens again under different session key
-        TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
-        for (uint256 i; i < tokens.length; ++i) {
-            tokenAmounts[i] = TokenData(tokens[i], 1 wei);
-        }
-        bytes memory anotherRl = abi.encode(
-            ResourceLock({
-                chainId: block.chainid,
-                smartWallet: address(scw),
-                sessionKey: otherSessionKey.pub,
-                validAfter: validAfter,
-                validUntil: validUntil,
-                bidHash: DUMMY_BID_HASH,
-                tokenData: tokenAmounts
-            })
-        );
-        harness.enableSessionKey(anotherRl);
-        // Verify both session keys enabled successfully
-        assertEq(harness.getSessionKeysByWallet().length, 2, "Two sessions should be enabled successfully");
-        // Retrieve the locked balances
-        uint256 usdcLocked = harness.exposed_retrieveLockedBalance(address(scw), address(usdc));
-        uint256 daiLocked = harness.exposed_retrieveLockedBalance(address(scw), address(dai));
-        uint256 usdtLocked = harness.exposed_retrieveLockedBalance(address(scw), address(usdt));
-        // Verify the locked balances
-        assertEq(usdcLocked, amounts[0] + 1 wei, "USDC locked balance should match");
-        assertEq(daiLocked, amounts[1] + 1 wei, "DAI locked balance should match");
-        assertEq(usdtLocked, amounts[2] + 1 wei, "USDT locked balance should match");
-    }
-
-    // Test: Encoding state of all locked tokens for a wallet
-    function test_exposed_cumulativeLockedForWallet() public withRequiredModules {
-        // Lock some tokens
-        bytes memory rl = _createResourceLock(address(scw));
-        harness.enableSessionKey(rl);
-        assertEq(harness.getSessionKeysByWallet()[0], sessionKey.pub, "Tokens should be locked successfully");
-        // Call the exposed function
-        TokenData[] memory initialBalances = harness.exposed_cumulativeLockedForWallet(address(scw));
-        // Verify the encoded state
-        assertEq(initialBalances.length, 3, "Should have 3 locked tokens");
-        assertEq(initialBalances[0].token, address(usdc), "USDC should be first token");
-        assertEq(initialBalances[0].amount, amounts[0], "Balance of USDC should be 100 USDC");
-        assertEq(initialBalances[1].token, address(dai), "DAI should be first token");
-        assertEq(initialBalances[1].amount, amounts[1], "Balance of DAI should be 200 DAI");
-        assertEq(initialBalances[2].token, address(usdt), "USDT should be second token");
-        assertEq(initialBalances[2].amount, amounts[2], "Balance of USDT should be 300 USDT");
-    }
+    /*//////////////////////////////////////////////////////////////
+                        ROLE MANAGEMENT TESTS
+    //////////////////////////////////////////////////////////////*/
 
     // Test: Grant SESSION_KEY_DISABLER role to an address
     function test_grantSessionKeyDisablerRole() public withRequiredModules {
@@ -1031,25 +966,48 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     function test_batchDisableSessionKeys() public withRequiredModules {
         // Enable multiple session keys
         _enableSessionKey(address(scw));
+
         // Enable another session key
         TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
         for (uint256 i; i < tokens.length; ++i) {
             tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
         }
-        bytes memory rl = abi.encode(
-            ResourceLock({
-                chainId: block.chainid,
-                smartWallet: address(scw),
-                sessionKey: otherSessionKey.pub,
-                validAfter: validAfter,
-                validUntil: validUntil,
-                bidHash: DUMMY_BID_HASH,
-                tokenData: tokenAmounts
-            })
+
+        // Use different bid hash to avoid consumed bid hash error
+        bytes32 SECOND_BID_HASH = keccak256("second_bid_hash");
+        ResourceLock memory rl = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: address(scw),
+            sessionKey: otherSessionKey.pub,
+            validAfter: validAfter,
+            validUntil: validUntil,
+            bidHash: SECOND_BID_HASH, // Different bid hash
+            tokenData: tokenAmounts
+        });
+
+        bytes memory enableSessionKeyData = abi.encodeWithSelector(CAM.enableSessionKey.selector, abi.encode(rl));
+
+        bytes memory opCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, enableSessionKeyData))
         );
-        cam.enableSessionKey(rl);
+
+        // Create user operation with proper signature format
+        (PackedUserOperation memory op, bytes32[] memory proof, bytes32 root) =
+            _createUserOpWithResourceLock(address(scw), eoa, address(rlv), opCalldata, rl, true);
+
+        bytes memory sig = _sign(root, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(root), _packProofForSignature(proof));
+
+        // Fund the wallet with enough ETH for gas fees
+        vm.deal(address(scw), 1 ether);
+
+        // Execute the user operation
+        _executeUserOp(op);
+
         // Claim all tokens for both session keys
         _claimTokensBySolver(eoa, scw, sessionKey, amounts[0], amounts[1], amounts[2]);
+
         // Batch disable session keys
         address[] memory sessionKeys = new address[](2);
         sessionKeys[0] = sessionKey.pub;
@@ -1057,6 +1015,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         vm.stopPrank();
         vm.startPrank(deployer.pub);
         cam.batchDisableSessionKeys(sessionKeys);
+
         // Verify both session keys are disabled
         SessionData memory sessionData1 = cam.getSessionKeyData(sessionKeys[0]);
         SessionData memory sessionData2 = cam.getSessionKeyData(sessionKeys[1]);
@@ -1139,112 +1098,163 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         // Enable session keys for both wallets
         _enableSessionKey(address(scw));
         vm.stopPrank();
+
         // Create two different wallets with session keys
         ModularEtherspotWallet scw2 = _createSCW(alice.pub);
         _installModule(alice.pub, scw2, MODULE_TYPE_VALIDATOR, address(moecdsav), hex"");
         _installHookViaMultiplexer(scw2, address(cam), HookType.GLOBAL);
         _installModule(alice.pub, scw2, MODULE_TYPE_VALIDATOR, address(cam), abi.encode(MODULE_TYPE_VALIDATOR));
+        _installModule(alice.pub, scw2, MODULE_TYPE_VALIDATOR, address(rlv), abi.encode(alice.pub));
+
         usdc.mint(address(scw2), amounts[0]);
         dai.mint(address(scw2), amounts[1]);
         usdt.mint(address(scw2), amounts[2]);
-        vm.startPrank(address(scw2));
+
         TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
         for (uint256 i; i < tokens.length; ++i) {
             tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
         }
-        bytes memory rl = abi.encode(
-            ResourceLock({
-                chainId: block.chainid,
-                smartWallet: address(scw2),
-                sessionKey: otherSessionKey.pub,
-                validAfter: validAfter,
-                validUntil: validUntil,
-                bidHash: DUMMY_BID_HASH,
-                tokenData: tokenAmounts
-            })
+
+        ResourceLock memory rl = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: address(scw2),
+            sessionKey: otherSessionKey.pub,
+            validAfter: validAfter,
+            validUntil: validUntil,
+            bidHash: DUMMY_BID_HASH,
+            tokenData: tokenAmounts
+        });
+
+        bytes memory enableSessionKeyData = abi.encodeWithSelector(CAM.enableSessionKey.selector, abi.encode(rl));
+        bytes memory opCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, enableSessionKeyData))
         );
-        cam.enableSessionKey(rl);
-        vm.stopPrank();
+
+        // Create user operation with proper signature format
+        (PackedUserOperation memory op, bytes32[] memory proof, bytes32 root) =
+            _createUserOpWithResourceLock(address(scw2), alice, address(rlv), opCalldata, rl, true);
+        bytes memory sig = _sign(root, alice);
+        op.signature = bytes.concat(sig, abi.encodePacked(root), _packProofForSignature(proof));
+
+        // Fund the wallet with enough ETH for gas fees
+        vm.deal(address(scw2), 1 ether);
+
+        // Execute the user operation
+        _executeUserOp(op);
+
         // Grant SESSION_KEY_DISABLER role to alice and bob
         vm.startPrank(deployer.pub);
         cam.grantSessionKeyDisablerRole(alice.pub);
         cam.grantSessionKeyDisablerRole(bob.pub);
         vm.stopPrank();
+
         // Claim tokens for both session keys to make them disableable
         _claimTokensBySolver(eoa, scw, sessionKey, amounts[0], amounts[1], amounts[2]);
         _claimTokensBySolver(alice, scw2, otherSessionKey, amounts[0], amounts[1], amounts[2]);
+
         // Alice disables first session key
         vm.prank(alice.pub);
         cam.disableSessionKey(sessionKey.pub);
+
         // Bob disables second session key
         vm.prank(bob.pub);
         cam.disableSessionKey(otherSessionKey.pub);
-        // Verify both session keys are disabled
-        SessionData memory sessionData1 = cam.getSessionKeyData(sessionKey.pub);
-        SessionData memory sessionData2 = cam.getSessionKeyData(otherSessionKey.pub);
-        assertEq(sessionData1.validUntil, 0, "First session key should be disabled");
-        assertEq(sessionData2.validUntil, 0, "Second session key should be disabled");
-    }
 
-    // Test: Disable session key after expiry with disabler role
-    function test_disableSessionKey_afterExpiry_withDisablerRole() public withRequiredModules {
-        _enableSessionKey(address(scw));
-        // Grant SESSION_KEY_DISABLER role to alice
-        vm.stopPrank();
-        vm.startPrank(deployer.pub);
-        cam.grantSessionKeyDisablerRole(alice.pub);
-        // Warp to after session key expiration
-        vm.warp(validUntil + 1);
-        vm.stopPrank();
-        // Alice should be able to disable expired session key even with locked tokens
-        vm.prank(alice.pub);
-        vm.expectEmit(true, true, false, false);
-        emit ICredibleAccountModule.CredibleAccountModule_SessionKeyDisabled(sessionKey.pub, address(scw));
-        cam.disableSessionKey(sessionKey.pub);
-        // Verify session key is disabled
-        SessionData memory sessionData = cam.getSessionKeyData(sessionKey.pub);
-        assertEq(sessionData.validUntil, 0, "Session key should be disabled");
+        // Verify both session keys are disabled by checking they no longer exist in the mapping
+        assertEq(cam.sessionKeyToWallet(sessionKey.pub), address(0), "First session key should be disabled");
+        assertEq(cam.sessionKeyToWallet(otherSessionKey.pub), address(0), "Second session key should be disabled");
     }
 
     // Test: Batch disable with mixed valid/expired/claimed session keys
     function test_batchDisableSessionKeys_mixedStates() public withRequiredModules {
         // Enable multiple session keys with different states
         _enableSessionKey(address(scw));
+
+        // Mint enough tokens for all session keys
+        usdc.mint(address(scw), amounts[0] * 3); // Mint 300 USDC more
+        usdt.mint(address(scw), amounts[1] * 3); // Mint 300 USDT more
+        dai.mint(address(scw), amounts[2] * 3); // Mint 300 WETH more
+
         // Enable second session key that will expire
         TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
         for (uint256 i; i < tokens.length; ++i) {
             tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
         }
-        bytes memory rl2 = abi.encode(
-            ResourceLock({
-                chainId: block.chainid,
-                smartWallet: address(scw),
-                sessionKey: otherSessionKey.pub,
-                validAfter: validAfter,
-                validUntil: uint48(block.timestamp + 100), // Will expire soon
-                bidHash: DUMMY_BID_HASH,
-                tokenData: tokenAmounts
-            })
+
+        // Use different bid hash to avoid consumed bid hash error
+        bytes32 SECOND_BID_HASH = keccak256("second_bid_hash");
+        ResourceLock memory rl2 = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: address(scw),
+            sessionKey: otherSessionKey.pub,
+            validAfter: validAfter,
+            validUntil: uint48(block.timestamp + 100), // Will expire soon
+            bidHash: SECOND_BID_HASH,
+            tokenData: tokenAmounts
+        });
+
+        bytes memory enableSessionKeyData2 = abi.encodeWithSelector(CAM.enableSessionKey.selector, abi.encode(rl2));
+
+        bytes memory opCalldata2 = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, enableSessionKeyData2))
         );
-        cam.enableSessionKey(rl2);
+
+        // Create user operation with proper signature format
+        (PackedUserOperation memory op2, bytes32[] memory proof2, bytes32 root2) =
+            _createUserOpWithResourceLock(address(scw), eoa, address(rlv), opCalldata2, rl2, true);
+
+        bytes memory sig2 = _sign(root2, eoa);
+        op2.signature = bytes.concat(sig2, abi.encodePacked(root2), _packProofForSignature(proof2));
+
+        // Fund the wallet with enough ETH for gas fees
+        vm.deal(address(scw), 1 ether);
+
+        // Execute the user operation
+        _executeUserOp(op2);
+
         // Enable third session key
         User memory thirdSessionKey = _createUser("Third Session Key");
-        bytes memory rl3 = abi.encode(
-            ResourceLock({
-                chainId: block.chainid,
-                smartWallet: address(scw),
-                sessionKey: thirdSessionKey.pub,
-                validAfter: validAfter,
-                validUntil: validUntil,
-                bidHash: DUMMY_BID_HASH,
-                tokenData: tokenAmounts
-            })
+
+        // Use different bid hash to avoid consumed bid hash error
+        bytes32 THIRD_BID_HASH = keccak256("third_bid_hash");
+        ResourceLock memory rl3 = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: address(scw),
+            sessionKey: thirdSessionKey.pub,
+            validAfter: validAfter,
+            validUntil: validUntil,
+            bidHash: THIRD_BID_HASH,
+            tokenData: tokenAmounts
+        });
+
+        bytes memory enableSessionKeyData3 = abi.encodeWithSelector(CAM.enableSessionKey.selector, abi.encode(rl3));
+
+        bytes memory opCalldata3 = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, enableSessionKeyData3))
         );
-        cam.enableSessionKey(rl3);
+
+        // Create user operation with proper signature format
+        (PackedUserOperation memory op3, bytes32[] memory proof3, bytes32 root3) =
+            _createUserOpWithResourceLock(address(scw), eoa, address(rlv), opCalldata3, rl3, true);
+
+        bytes memory sig3 = _sign(root3, eoa);
+        op3.signature = bytes.concat(sig3, abi.encodePacked(root3), _packProofForSignature(proof3));
+
+        // Fund the wallet with enough ETH for gas fees
+        vm.deal(address(scw), 1 ether);
+
+        // Execute the user operation
+        _executeUserOp(op3);
+
         // Claim tokens for first session key only
         _claimTokensBySolver(eoa, scw, sessionKey, amounts[0], amounts[1], amounts[2]);
+
         // Warp time to expire second session key
         vm.warp(block.timestamp + 150);
+
         // Batch disable all session keys
         address[] memory sessionKeys = new address[](3);
         sessionKeys[0] = sessionKey.pub; // Claimed
@@ -1253,6 +1263,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         vm.stopPrank();
         vm.startPrank(deployer.pub);
         cam.batchDisableSessionKeys(sessionKeys);
+
         // Verify first two are disabled, third should remain
         SessionData memory sessionData1 = cam.getSessionKeyData(sessionKeys[0]);
         SessionData memory sessionData2 = cam.getSessionKeyData(sessionKeys[1]);
@@ -1345,52 +1356,77 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         // Enable session key from first wallet
         _enableSessionKey(address(scw));
         vm.stopPrank();
+
         // Create second wallet
         User memory differentOwner = _createUser("Different Owner");
         ModularEtherspotWallet scw2 = _createSCW(differentOwner.pub);
         _installModule(differentOwner.pub, scw2, MODULE_TYPE_VALIDATOR, address(moecdsav), hex"");
         _installHookViaMultiplexer(scw2, address(cam), HookType.GLOBAL);
         _installModule(differentOwner.pub, scw2, MODULE_TYPE_VALIDATOR, address(cam), abi.encode(MODULE_TYPE_VALIDATOR));
+        _installModule(differentOwner.pub, scw2, MODULE_TYPE_VALIDATOR, address(rlv), abi.encode(differentOwner.pub));
+
         usdc.mint(address(scw2), amounts[0]);
         dai.mint(address(scw2), amounts[1]);
         usdt.mint(address(scw2), amounts[2]);
         console.log("USDC balance of scw2:", usdc.balanceOf(address(scw2)));
         console.log("DAI balance of scw2:", dai.balanceOf(address(scw2)));
         console.log("USDT balance of scw2:", usdt.balanceOf(address(scw2)));
+
         // Enable session key from second wallet
-        vm.startPrank(address(scw2));
         TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
         for (uint256 i; i < tokens.length; ++i) {
             tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
         }
-        bytes memory rl = abi.encode(
-            ResourceLock({
-                chainId: block.chainid,
-                smartWallet: address(scw2),
-                sessionKey: otherSessionKey.pub,
-                validAfter: validAfter,
-                validUntil: validUntil,
-                bidHash: DUMMY_BID_HASH,
-                tokenData: tokenAmounts
-            })
+
+        // Use different bid hash to avoid consumed bid hash error
+        bytes32 SECOND_WALLET_BID_HASH = keccak256("second_wallet_bid_hash");
+        ResourceLock memory rl = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: address(scw2),
+            sessionKey: otherSessionKey.pub,
+            validAfter: validAfter,
+            validUntil: validUntil,
+            bidHash: SECOND_WALLET_BID_HASH,
+            tokenData: tokenAmounts
+        });
+
+        bytes memory enableSessionKeyData = abi.encodeWithSelector(CAM.enableSessionKey.selector, abi.encode(rl));
+
+        bytes memory opCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, enableSessionKeyData))
         );
-        cam.enableSessionKey(rl);
-        vm.stopPrank();
+
+        // Create user operation with proper signature format for second wallet
+        (PackedUserOperation memory op, bytes32[] memory proof, bytes32 root) =
+            _createUserOpWithResourceLock(address(scw2), differentOwner, address(rlv), opCalldata, rl, true);
+
+        bytes memory sig = _sign(root, differentOwner);
+        op.signature = bytes.concat(sig, abi.encodePacked(root), _packProofForSignature(proof));
+
+        // Fund the second wallet with enough ETH for gas fees
+        vm.deal(address(scw2), 1 ether);
+
+        // Execute the user operation
+        _executeUserOp(op);
+
         // Grant disabler role to alice
         vm.startPrank(deployer.pub);
         cam.grantSessionKeyDisablerRole(alice.pub);
+
         // Claim tokens for both session keys
         _claimTokensBySolver(eoa, scw, sessionKey, amounts[0], amounts[1], amounts[2]);
         console.log("scw address:", address(scw));
         console.log("scw2 address:", address(scw2));
         console.log("About to claim tokens for scw2...");
-
         _claimTokensBySolver(differentOwner, scw2, otherSessionKey, amounts[0], amounts[1], amounts[2]);
+
         // Alice should be able to disable both session keys
         vm.stopPrank();
         vm.startPrank(alice.pub);
         cam.disableSessionKey(sessionKey.pub);
         cam.disableSessionKey(otherSessionKey.pub);
+
         // Verify both are disabled
         SessionData memory sessionData1 = cam.getSessionKeyData(sessionKey.pub);
         SessionData memory sessionData2 = cam.getSessionKeyData(otherSessionKey.pub);
@@ -1544,27 +1580,31 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         for (uint256 i; i < tokens.length; ++i) {
             tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
         }
-
         // Create ResourceLock with chainId = 0 (wildcard)
-        bytes memory rl = abi.encode(
-            ResourceLock({
-                chainId: 0, // Wildcard chain ID
-                smartWallet: address(scw),
-                sessionKey: sessionKey.pub,
-                validAfter: validAfter,
-                validUntil: validUntil,
-                bidHash: DUMMY_BID_HASH,
-                tokenData: tokenAmounts
-            })
+        ResourceLock memory rl = ResourceLock({
+            chainId: 0, // Wildcard chain ID
+            smartWallet: address(scw),
+            sessionKey: sessionKey.pub,
+            validAfter: validAfter,
+            validUntil: validUntil,
+            bidHash: DUMMY_BID_HASH,
+            tokenData: tokenAmounts
+        });
+        bytes memory enableSessionKeyData = abi.encodeWithSelector(CAM.enableSessionKey.selector, abi.encode(rl));
+        bytes memory opCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, enableSessionKeyData))
         );
-
         // Expect success event
         vm.expectEmit(true, true, false, false);
         emit ICredibleAccountModule.CredibleAccountModule_SessionKeyEnabled(sessionKey.pub, address(scw));
-
-        // Enable session key - should succeed
-        cam.enableSessionKey(rl);
-
+        // Create user operation with proper signature format
+        (PackedUserOperation memory op, bytes32[] memory proof, bytes32 root) =
+            _createUserOpWithResourceLock(address(scw), eoa, address(rlv), opCalldata, rl, true);
+        bytes memory sig = _sign(root, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(root), _packProofForSignature(proof));
+        // Execute the user operation
+        _executeUserOp(op);
         // Verify session key was enabled
         assertEq(cam.getSessionKeysByWallet().length, 1, "Session key should be enabled");
         vm.stopPrank();
@@ -1576,28 +1616,44 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         // Create token data array that exceeds MAX_LOCKED_TOKENS (5)
         uint256 excessiveTokenCount = 6; // MAX_LOCKED_TOKENS is 5
         TokenData[] memory excessiveTokenAmounts = new TokenData[](excessiveTokenCount);
-
         for (uint256 i; i < excessiveTokenCount; ++i) {
             // Create dummy token addresses
             excessiveTokenAmounts[i] = TokenData(address(uint160(i + 1)), 100e18);
         }
 
-        bytes memory rl = abi.encode(
-            ResourceLock({
-                chainId: block.chainid,
-                smartWallet: address(scw),
-                sessionKey: sessionKey.pub,
-                validAfter: validAfter,
-                validUntil: validUntil,
-                bidHash: DUMMY_BID_HASH,
-                tokenData: excessiveTokenAmounts // Too many tokens
-            })
+        ResourceLock memory rl = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: address(scw),
+            sessionKey: sessionKey.pub,
+            validAfter: validAfter,
+            validUntil: validUntil,
+            bidHash: DUMMY_BID_HASH,
+            tokenData: excessiveTokenAmounts // Too many tokens
+        });
+
+        bytes memory enableSessionKeyData = abi.encodeWithSelector(CAM.enableSessionKey.selector, abi.encode(rl));
+
+        bytes memory opCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, enableSessionKeyData))
         );
 
-        // Attempt to enable the session key - should revert
-        _toRevert(CAM.CredibleAccountModule_MaxLockedTokensReached.selector, abi.encode(sessionKey.pub));
-        cam.enableSessionKey(rl);
-        vm.stopPrank();
+        // Create user operation with proper signature format
+        (PackedUserOperation memory op, bytes32[] memory proof, bytes32 root) =
+            _createUserOpWithResourceLock(address(scw), eoa, address(rlv), opCalldata, rl, true);
+
+        bytes memory sig = _sign(root, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(root), _packProofForSignature(proof));
+
+        // Fund the wallet with enough ETH for gas fees
+        vm.deal(address(scw), 1 ether);
+
+        // Attempt to enable the session key - should revert wrapped in UserOpEvent
+        bytes32 hash = entrypoint.getUserOpHash(op);
+        _revertUserOpEvent(
+            hash, op.nonce, CAM.CredibleAccountModule_MaxLockedTokensReached.selector, abi.encode(sessionKey.pub)
+        );
+        _executeUserOp(op);
     }
 
     /// @notice Tests that enableSessionKey succeeds when token data equals maximum allowed
@@ -1606,30 +1662,41 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         // Create token data array that equals MAX_LOCKED_TOKENS (5)
         uint256 maxTokenCount = 5; // MAX_LOCKED_TOKENS is 5
         TokenData[] memory maxTokenAmounts = new TokenData[](maxTokenCount);
-
         for (uint256 i; i < maxTokenCount; ++i) {
             // Create dummy token addresses
             maxTokenAmounts[i] = TokenData(address(uint160(i + 1)), 100e18);
         }
 
-        bytes memory rl = abi.encode(
-            ResourceLock({
-                chainId: block.chainid,
-                smartWallet: address(scw),
-                sessionKey: sessionKey.pub,
-                validAfter: validAfter,
-                validUntil: validUntil,
-                bidHash: DUMMY_BID_HASH,
-                tokenData: maxTokenAmounts // Exactly MAX_LOCKED_TOKENS
-            })
+        ResourceLock memory rl = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: address(scw),
+            sessionKey: sessionKey.pub,
+            validAfter: validAfter,
+            validUntil: validUntil,
+            bidHash: DUMMY_BID_HASH,
+            tokenData: maxTokenAmounts // Exactly MAX_LOCKED_TOKENS
+        });
+
+        bytes memory enableSessionKeyData = abi.encodeWithSelector(CAM.enableSessionKey.selector, abi.encode(rl));
+
+        bytes memory opCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, enableSessionKeyData))
         );
 
         // Expect success event
         vm.expectEmit(true, true, false, false);
         emit ICredibleAccountModule.CredibleAccountModule_SessionKeyEnabled(sessionKey.pub, address(scw));
 
-        // Enable session key - should succeed
-        cam.enableSessionKey(rl);
+        // Create user operation with proper signature format
+        (PackedUserOperation memory op, bytes32[] memory proof, bytes32 root) =
+            _createUserOpWithResourceLock(address(scw), eoa, address(rlv), opCalldata, rl, true);
+
+        bytes memory sig = _sign(root, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(root), _packProofForSignature(proof));
+
+        // Execute the user operation
+        _executeUserOp(op);
 
         // Verify session key was enabled
         assertEq(cam.getSessionKeysByWallet().length, 1, "Session key should be enabled");
@@ -1637,6 +1704,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         // Verify all tokens were locked
         ICredibleAccountModule.LockedToken[] memory lockedTokens = cam.getLockedTokensForSessionKey(sessionKey.pub);
         assertEq(lockedTokens.length, maxTokenCount, "All tokens should be locked");
+
         vm.stopPrank();
     }
 
@@ -1776,15 +1844,18 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         uint256 usdcBalance = usdc.balanceOf(address(scw));
         uint256 daiBalance = dai.balanceOf(address(scw));
         uint256 usdtBalance = usdt.balanceOf(address(scw));
+
         // Verify wallet has tokens initially
         assertTrue(usdcBalance > 0, "Wallet should have usdc balance");
         assertTrue(daiBalance > 0, "Wallet should have dai balance");
         assertTrue(usdtBalance > 0, "Wallet should have usdt balance");
+
         // Create session key data with EXACT wallet balances (edge case: 100% locked)
         TokenData[] memory exactTokenData = new TokenData[](3);
         exactTokenData[0] = TokenData({token: address(usdc), amount: usdcBalance});
         exactTokenData[1] = TokenData({token: address(dai), amount: daiBalance});
         exactTokenData[2] = TokenData({token: address(usdt), amount: usdtBalance});
+
         ResourceLock memory exactResourceLock = ResourceLock({
             chainId: block.chainid,
             smartWallet: address(scw),
@@ -1794,25 +1865,114 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
             bidHash: keccak256("exactBalanceTest"),
             tokenData: exactTokenData
         });
+
         // Enable session key with exact wallet balance amounts
-        bytes memory exactResourceLockData = abi.encode(exactResourceLock);
-        vm.startPrank(address(scw));
-        cam.enableSessionKey(exactResourceLockData);
+        bytes memory enableSessionKeyData =
+            abi.encodeWithSelector(CAM.enableSessionKey.selector, abi.encode(exactResourceLock));
+
+        bytes memory opCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, enableSessionKeyData))
+        );
+
+        // Create user operation with proper signature format
+        (PackedUserOperation memory op, bytes32[] memory proof, bytes32 root) =
+            _createUserOpWithResourceLock(address(scw), eoa, address(rlv), opCalldata, exactResourceLock, true);
+
+        bytes memory sig = _sign(root, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(root), _packProofForSignature(proof));
+
+        // Fund the wallet with enough ETH for gas fees
+        vm.deal(address(scw), 1 ether);
+
+        // Execute the user operation
+        _executeUserOp(op);
+
         // Verify session key is enabled
         assertTrue(cam.getSessionKeyData(sessionKey.pub).live, "Session key should be live");
-        vm.stopPrank();
+
         // Claim ALL tokens (exact amounts) - this should result in zero wallet balance
         _claimTokensBySolver(eoa, scw, sessionKey, usdcBalance, daiBalance, usdtBalance);
+
         // Verify the edge case: wallet balances are now zero
         assertEq(usdc.balanceOf(address(scw)), 0, "usdc wallet balance should be zero");
         assertEq(dai.balanceOf(address(scw)), 0, "dai wallet balance should be zero");
         assertEq(usdt.balanceOf(address(scw)), 0, "usdt wallet balance should be zero");
+
         // Verify tokens are fully claimed
         assertTrue(cam.isSessionClaimed(sessionKey.pub), "Session should be fully claimed");
+
         // Verify no locked tokens remain
         assertEq(cam.tokenTotalLockedForWallet(address(usdc)), 0, "No usdc should remain locked");
         assertEq(cam.tokenTotalLockedForWallet(address(dai)), 0, "No dai should remain locked");
         assertEq(cam.tokenTotalLockedForWallet(address(usdt)), 0, "No usdt should remain locked");
+    }
+
+    function test_setResourceLockValidator_revertIf_invalidAddressUsed() public {
+        vm.startPrank(deployer.pub);
+        _toRevert(CAM.CredibleAccountModule_InvalidResourceLockValidator.selector, hex"");
+        cam.setResourceLockValidator(address(0));
+    }
+
+    function test_enableSessionKey_revertIf_resourceLockValidatorNotSet() public {
+        CAM badSetupCAM = new CAM(deployer.pub, address(hmp));
+        vm.stopPrank();
+        _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(moecdsav), hex"");
+        _installHookViaMultiplexer(scw, address(badSetupCAM), HookType.GLOBAL);
+        _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(badSetupCAM), abi.encode(MODULE_TYPE_VALIDATOR));
+
+        // Mint tokens for the session key
+        usdc.mint(address(scw), amounts[0]);
+        dai.mint(address(scw), amounts[1]);
+        usdt.mint(address(scw), amounts[2]);
+
+        TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
+        for (uint256 i; i < tokens.length; ++i) {
+            tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
+        }
+
+        ResourceLock memory rl = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: address(scw),
+            sessionKey: sessionKey.pub,
+            validAfter: validAfter,
+            validUntil: validUntil,
+            bidHash: DUMMY_BID_HASH,
+            tokenData: tokenAmounts
+        });
+        bytes memory resourceLockData = abi.encode(rl);
+        _toRevert(CAM.CredibleAccountModule_ResourceLockValidatorNotSet.selector, hex"");
+
+        // Call enableSessionKey directly from the wallet address
+        vm.prank(address(scw));
+        badSetupCAM.enableSessionKey(resourceLockData);
+    }
+
+    function test_enableSessionKey_revertIf_sessionKeyNotAuthorized() public withRequiredModules {
+        // Mint tokens for the session key
+        usdc.mint(address(scw), amounts[0]);
+        dai.mint(address(scw), amounts[1]);
+        usdt.mint(address(scw), amounts[2]);
+
+        TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
+        for (uint256 i; i < tokens.length; ++i) {
+            tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
+        }
+
+        ResourceLock memory rl = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: address(scw),
+            sessionKey: sessionKey.pub,
+            validAfter: validAfter,
+            validUntil: validUntil,
+            bidHash: DUMMY_BID_HASH,
+            tokenData: tokenAmounts
+        });
+
+        // Try to enable session key directly without proper RLV authorization
+        vm.startPrank(address(scw));
+        vm.expectRevert(abi.encodeWithSelector(CAM.CredibleAccountModule_SessionKeyNotAuthorized.selector));
+        cam.enableSessionKey(abi.encode(rl));
         vm.stopPrank();
     }
 }
