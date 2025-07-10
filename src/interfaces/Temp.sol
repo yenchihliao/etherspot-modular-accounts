@@ -9,9 +9,7 @@ import "../common/Enums.sol";
  * @author rhinestone.wtf
  */
 interface IHookMultiPlexer {
-    function getHooks(
-        address smartAccount
-    ) external view returns (address[] memory hooks);
+    function getHooks(address smartAccount) external view returns (address[] memory hooks);
 
     function isModuleType(uint256 typeID) external returns (bool);
 
@@ -19,9 +17,5 @@ interface IHookMultiPlexer {
 
     function version() external returns (string memory);
 
-    function hasHook(
-        address walletAddress,
-        address hookAddress,
-        HookType hookType
-    ) external returns (bool);
+    function hasHook(address walletAddress, address hookAddress, HookType hookType) external returns (bool);
 }

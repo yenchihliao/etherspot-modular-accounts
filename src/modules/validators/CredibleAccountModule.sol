@@ -50,6 +50,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     error CredibleAccountModule_ValidatorMustBeUninstalledFirst();
     error CredibleAccountModule_MaxLockedTokensReached(address sessionKey);
     error CredibleAccountModule_InvalidCaller();
+    error CredibleAccountModule_InvalidSessionKeyParams();
 
     /*//////////////////////////////////////////////////////////////
                                MAPPINGS
@@ -204,7 +205,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         for (uint256 i; i < _sessionKeys.length; i++) {
             address sessionKey = _sessionKeys[i];
             address targetWallet = sessionKeyToWallet[sessionKey];
-            if (targetWallet == address(0) || sessionData[sessionKey][targetWallet].validUntil == 0) {
+            if (targetWallet == address(0) || sessionData[targetWallet][sessionKey].validUntil == 0) {
                 continue; // Skip non-existent keys instead of reverting
             }
             // Check if session has expired or all tokens are claimed
@@ -323,7 +324,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
             return VALIDATION_FAILED;
         }
         if (!_validateSessionKeyParams(sessionKeySigner, userOp)) {
-            return VALIDATION_FAILED;
+            revert CredibleAccountModule_InvalidSessionKeyParams();
         }
         return _packValidationData(false, sd.validUntil, sd.validAfter);
     }

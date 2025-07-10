@@ -82,9 +82,6 @@ contract ResourceLockValidator is IResourceLockValidator {
     }
 
     modifier onlyCredibleAccountModuleOrOwner() {
-        if (msg.sender == credibleAccountModule && credibleAccountModule == address(0)) {
-            revert RLV_CredibleAccountModuleNotSet();
-        }
         if (msg.sender != credibleAccountModule && msg.sender != owner) revert RLV_InvalidCredibleAccountModule();
         _;
     }
@@ -173,7 +170,6 @@ contract ResourceLockValidator is IResourceLockValidator {
             return SIG_VALIDATION_SUCCESS;
         }
         bytes32 sigRoot = ECDSA.toEthSignedMessageHash(root);
-        address recoveredMSigner = ECDSA.recover(sigRoot, ecdsaSignature);
         if (walletOwner.isValidSignatureNow(sigRoot, ecdsaSignature)) {
             // NOTE: Added this for [M-01]
             authorizedSessionKeys[userOp.sender].add(rl.sessionKey);
