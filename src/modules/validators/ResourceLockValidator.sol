@@ -82,6 +82,7 @@ contract ResourceLockValidator is IResourceLockValidator {
     }
 
     modifier onlyCredibleAccountModuleOrOwner() {
+        if (credibleAccountModule == address(0)) revert RLV_CredibleAccountModuleNotSet();
         if (msg.sender != credibleAccountModule && msg.sender != owner) revert RLV_InvalidCredibleAccountModule();
         _;
     }

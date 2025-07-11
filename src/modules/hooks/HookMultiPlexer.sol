@@ -5,7 +5,7 @@ import {LibSort} from "solady/src/utils/LibSort.sol";
 import {IHook, IModule, MODULE_TYPE_HOOK} from "ERC7579/interfaces/IERC7579Module.sol";
 import {Execution} from "ERC7579/libs/ExecutionLib.sol";
 import {HookMultiPlexerLib} from "../../libraries/HookMultiPlexerLib.sol";
-import {IHookMultiPlexer} from "../../interfaces/IHookMultiplexer.sol";
+import {IHookMultiPlexer} from "../../interfaces/IHookMultiPlexer.sol";
 import {TrustedForwarder} from "../../utils/TrustedForwarder.sol";
 import "../../common/Enums.sol";
 import "../../common/Structs.sol";
