@@ -91,7 +91,6 @@ contract ResourceLockValidator is IResourceLockValidator {
                              CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
-    // TODO: Test credible account module address revert
     constructor(address _owner) {
         if (_owner == address(0)) revert RLV_InvalidOwner();
         owner = _owner;
@@ -127,11 +126,9 @@ contract ResourceLockValidator is IResourceLockValidator {
         override
         returns (uint256)
     {
-        // NOTE: Added this for [M-01]
         if (credibleAccountModule == address(0)) revert RLV_CredibleAccountModuleNotSet();
         bytes calldata signature = userOp.signature;
         address walletOwner = validatorStorage[msg.sender].owner;
-        // TODO: Need to check this validation on live network via bundler
         if (msg.sender != userOp.sender) {
             revert RLV_InvalidUserOpSender();
         }
@@ -165,14 +162,12 @@ contract ResourceLockValidator is IResourceLockValidator {
         }
         // check proof is signed
         if (walletOwner.isValidSignatureNow(root, ecdsaSignature)) {
-            // NOTE: Added this for [M-01]
             authorizedSessionKeys[userOp.sender].add(rl.sessionKey);
             consumedBidHashes[userOp.sender].add(rl.bidHash);
             return SIG_VALIDATION_SUCCESS;
         }
         bytes32 sigRoot = ECDSA.toEthSignedMessageHash(root);
         if (walletOwner.isValidSignatureNow(sigRoot, ecdsaSignature)) {
-            // NOTE: Added this for [M-01]
             authorizedSessionKeys[userOp.sender].add(rl.sessionKey);
             consumedBidHashes[userOp.sender].add(rl.bidHash);
             return SIG_VALIDATION_SUCCESS;

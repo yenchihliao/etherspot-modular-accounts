@@ -24,7 +24,6 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     //////////////////////////////////////////////////////////////*/
 
     error CredibleAccountModule_ModuleNotInstalled(address wallet);
-    // NOTE: Added these errors for [M-01]
     error CredibleAccountModule_InvalidResourceLockValidator();
     error CredibleAccountModule_ResourceLockValidatorNotSet();
     error CredibleAccountModule_MaxSessionKeysReached(address wallet);
@@ -35,7 +34,6 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     error CredibleAccountModule_InvalidValidUntil(uint48 validUntil);
     error CredibleAccountModule_InvalidChainId(uint256 chainId);
     error CredibleAccountModule_SessionKeyDoesNotExist(address session);
-    // NOTE: Added this error for [M-01]
     error CredibleAccountModule_SessionKeyNotAuthorized();
     error CredibleAccountModule_LockedTokensNotClaimed(address sessionKey);
     error CredibleAccountModule_InvalidHookMultiPlexer();
@@ -67,7 +65,6 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     //////////////////////////////////////////////////////////////*/
 
     IHookMultiPlexer public immutable hookMultiPlexer;
-    // NOTE: Added this for [M-01] (circular dependency requirement)
     address public resourceLockValidator;
     uint256 public constant MAX_SESSION_KEYS = 10;
     uint256 public constant MAX_LOCKED_TOKENS = 5;
@@ -94,7 +91,6 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
                                 SETUP
     //////////////////////////////////////////////////////////////*/
 
-    // NOTE: Added this function for [M-01]
     function setResourceLockValidator(address _resourceLockValidator) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (_resourceLockValidator == address(0)) {
             revert CredibleAccountModule_InvalidResourceLockValidator();
@@ -136,7 +132,6 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
 
     // @inheritdoc ICredibleAccountModule
     function enableSessionKey(bytes calldata _resourceLock) external {
-        // NOTE: Added this check for [M-01]
         if (resourceLockValidator == address(0)) {
             revert CredibleAccountModule_ResourceLockValidatorNotSet();
         }
@@ -159,7 +154,6 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         if (rl.chainId != 0 && rl.chainId != block.chainid) {
             revert CredibleAccountModule_InvalidChainId(rl.chainId);
         }
-        // NOTE: Added this check for [M-01]
         if (!IResourceLockValidator(resourceLockValidator).isSessionKeyAuthorized(msg.sender, rl.sessionKey)) {
             revert CredibleAccountModule_SessionKeyNotAuthorized();
         }
@@ -175,7 +169,6 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         }
         walletSessionKeys[msg.sender].push(rl.sessionKey);
         sessionKeyToWallet[rl.sessionKey] = msg.sender;
-        // NOTE: Added this call for [M-01]
         IResourceLockValidator(resourceLockValidator).removeSessionKeyAuthorization(msg.sender, rl.sessionKey);
         emit CredibleAccountModule_SessionKeyEnabled(rl.sessionKey, msg.sender);
     }

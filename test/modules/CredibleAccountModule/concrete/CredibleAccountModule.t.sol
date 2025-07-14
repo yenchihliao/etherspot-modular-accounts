@@ -684,9 +684,11 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
             abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch)));
         (PackedUserOperation memory op,) =
             _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldata);
-        // Expect the operation to revert due to signature error
-        // (claiming exceeds locked)
-        _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
+        // Expect the operation to revert due to invalid amounts
+        _toRevert(
+            IEntryPoint.FailedOpWithRevert.selector,
+            abi.encode(0, AA23, abi.encodeWithSelector(CAM.CredibleAccountModule_InvalidSessionKeyParams.selector))
+        );
         // Attempt to execute the user operation
         _executeUserOp(op);
         vm.stopPrank();
@@ -736,8 +738,11 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
             abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch)));
         (PackedUserOperation memory op,) =
             _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldata);
-        // Expect the operation to revert due to signature error (invalid amounts)
-        _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
+        // Expect the operation to revert due to invalid amounts
+        _toRevert(
+            IEntryPoint.FailedOpWithRevert.selector,
+            abi.encode(0, AA23, abi.encodeWithSelector(CAM.CredibleAccountModule_InvalidSessionKeyParams.selector))
+        );
         // Attempt to execute the user operation
         _executeUserOp(op);
         vm.stopPrank();
@@ -1457,7 +1462,10 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         // (claiming exceeds locked)
         (PackedUserOperation memory secondClaimOp,) =
             _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldata);
-        _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
+        _toRevert(
+            IEntryPoint.FailedOpWithRevert.selector,
+            abi.encode(0, AA23, abi.encodeWithSelector(CAM.CredibleAccountModule_InvalidSessionKeyParams.selector))
+        );
         // Attempt to execute the user operation
         _executeUserOp(secondClaimOp);
         vm.stopPrank();
