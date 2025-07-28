@@ -4,55 +4,36 @@ pragma solidity 0.8.23;
 import {LibSort} from "solady/src/utils/LibSort.sol";
 import {IHook, IModule, MODULE_TYPE_HOOK} from "ERC7579/interfaces/IERC7579Module.sol";
 import {Execution} from "ERC7579/libs/ExecutionLib.sol";
-import {ERC7484RegistryAdapter} from "../../utils/ERC7484RegistryAdapter.sol";
-import {IERC7484} from "../../interfaces/IERC7484.sol";
 import {HookMultiPlexerLib} from "../../libraries/HookMultiPlexerLib.sol";
-import {IHookMultiPlexer} from "../../interfaces/IHookMultiplexer.sol";
+import {IHookMultiPlexer} from "../../interfaces/IHookMultiPlexer.sol";
 import {TrustedForwarder} from "../../utils/TrustedForwarder.sol";
 import "../../common/Enums.sol";
 import "../../common/Structs.sol";
 
-/**
- * @title HookMultiPlexer
- * @dev A module that allows to add multiple hooks to a smart account
- * @author rhinestone.wtf
- */
-contract HookMultiPlexer is
-    IHook,
-    IHookMultiPlexer,
-    ERC7484RegistryAdapter,
-    TrustedForwarder
-{
+/// @title HookMultiPlexer (Modified Version)
+/// @dev A module that allows adding multiple hooks to a smart account.
+///      This contract is based on the original implementation by rhinestone.wtf,
+///      with modifications made by etherspot to extend its functionality.
+/// @author Original: rhinestone.wtf
+/// @author Modified by: etherspot
+/// @notice This contract is licensed under AGPL-3.0-only.
+///         Modifications have been made from the original version.
+///         See https://www.gnu.org/licenses/agpl-3.0.html for full license text.
+
+contract HookMultiPlexer is IHook, IHookMultiPlexer, TrustedForwarder {
     using HookMultiPlexerLib for *;
     using LibSort for uint256[];
     using LibSort for address[];
 
     error UnsupportedHookType(HookType hookType);
     error InvalidDataLength(uint256 dataLength);
+    error CannotUninstall();
 
-    event HookAdded(
-        address indexed account,
-        address indexed hook,
-        HookType hookType
-    );
-    event SigHookAdded(
-        address indexed account,
-        address indexed hook,
-        HookType hookType,
-        bytes4 sig
-    );
+    event HookAdded(address indexed account, address indexed hook, HookType hookType);
+    event SigHookAdded(address indexed account, address indexed hook, HookType hookType, bytes4 sig);
 
-    event HookRemoved(
-        address indexed account,
-        address indexed hook,
-        HookType hookType
-    );
-    event SigHookRemoved(
-        address indexed account,
-        address indexed hook,
-        HookType hookType,
-        bytes4 sig
-    );
+    event HookRemoved(address indexed account, address indexed hook, HookType hookType);
+    event SigHookRemoved(address indexed account, address indexed hook, HookType hookType, bytes4 sig);
     event AccountInitialized(address indexed account);
     event AccountUninitialized(address indexed account);
 
@@ -61,13 +42,7 @@ contract HookMultiPlexer is
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
     mapping(address account => Config config) internal accountConfig;
 
-    /**
-     * Contract constructor
-     * @dev sets the registry as an immutable variable
-     *
-     * @param _registry The registry address
-     */
-    constructor(IERC7484 _registry) ERC7484RegistryAdapter(_registry) {}
+    constructor() {}
 
     modifier onlySupportedHookType(HookType hookType) {
         if (uint8(hookType) <= uint8(HookType.TARGET_SIG)) {
@@ -124,9 +99,9 @@ contract HookMultiPlexer is
         // call remove Hook for each subHook (of HookType GLOBAL) in $config.hooks[HookType.GLOBAL]
         // loop through all the hooks of type HookType.GLOBAL and call remove Hook on them
         uint256 length = $config.hooks[HookType.GLOBAL].length;
-        for (uint256 i = 0; i < length; i++) {
+        for (uint256 i; i < length; ++i) {
             address hookAddress = $config.hooks[HookType.GLOBAL][i];
-            IHook(hookAddress).onInstall(abi.encode(MODULE_TYPE_HOOK));
+            IHook(hookAddress).onInstall(abi.encode(MODULE_TYPE_HOOK, msg.sender));
         }
 
         valueHooks.requireSortedAndUnique();
@@ -137,9 +112,7 @@ contract HookMultiPlexer is
 
         // storeSelectorHooks function is used to uniquify and sstore sig specific hooks
         $config.sigHooks[HookType.SIG].storeSelectorHooks(sigHooks);
-        $config.sigHooks[HookType.TARGET_SIG].storeSelectorHooks(
-            targetSigHooks
-        );
+        $config.sigHooks[HookType.TARGET_SIG].storeSelectorHooks(targetSigHooks);
 
         $config.initialized = true;
 
@@ -148,29 +121,9 @@ contract HookMultiPlexer is
 
     /**
      * Uninstalls the module
-     * @dev deletes all the hooks
      */
     function onUninstall(bytes calldata) external override {
-        // cache the storage config
-        Config storage $config = $getConfig({account: msg.sender});
-
-        delete $config.hooks[HookType.GLOBAL];
-
-        // call remove Hook for each subHook (of HookType GLOBAL) in $config.hooks[HookType.GLOBAL]
-        // loop through all the hooks of type HookType.GLOBAL and call remove Hook on them
-        uint256 length = $config.hooks[HookType.GLOBAL].length;
-        for (uint256 i = 0; i < length; i++) {
-            address hookAddress = $config.hooks[HookType.GLOBAL][i];
-            _removeHook(hookAddress, HookType.GLOBAL);
-        }
-
-        delete $config.hooks[HookType.DELEGATECALL];
-        delete $config.hooks[HookType.VALUE];
-        $config.sigHooks[HookType.SIG].deleteHooks();
-        $config.sigHooks[HookType.TARGET_SIG].deleteHooks();
-        $config.initialized = false;
-
-        emit AccountUninitialized(msg.sender);
+        revert CannotUninstall();
     }
 
     /**
@@ -194,9 +147,7 @@ contract HookMultiPlexer is
      *
      * @return hooks array of hooks
      */
-    function getHooks(
-        address smartAccount
-    ) external view returns (address[] memory hooks) {
+    function getHooks(address smartAccount) external view returns (address[] memory hooks) {
         // cache the storage config
         Config storage $config = $getConfig({account: smartAccount});
 
@@ -216,11 +167,7 @@ contract HookMultiPlexer is
         hooks.uniquifySorted();
     }
 
-    function hasHook(
-        address walletAddress,
-        address hookAddress,
-        HookType hookType
-    ) external view returns (bool) {
+    function hasHook(address walletAddress, address hookAddress, HookType hookType) external view returns (bool) {
         Config storage $config = $getConfig({account: walletAddress});
         return $config.hooks[hookType].contains(hookAddress);
     }
@@ -232,22 +179,12 @@ contract HookMultiPlexer is
      * @param hook address of the hook
      * @param hookType type of the hook
      */
-    function addHook(
-        address hook,
-        HookType hookType
-    ) external onlySupportedHookType(hookType) {
+    function addHook(address hook, HookType hookType) external onlySupportedHookType(hookType) {
         // check if the module is initialized and revert if it is not
         if (!isInitialized(msg.sender)) revert NotInitialized(msg.sender);
 
-        // check if the hook is attested to on the registry
-        REGISTRY.checkForAccount({
-            smartAccount: msg.sender,
-            module: hook,
-            moduleType: MODULE_TYPE_HOOK
-        });
-
         // call `onInstall` on the hook
-        IHook(hook).onInstall(abi.encode(MODULE_TYPE_HOOK));
+        IHook(hook).onInstall(abi.encode(MODULE_TYPE_HOOK, msg.sender));
 
         // store subhook
         $getConfig({account: msg.sender}).hooks[hookType].push(hook);
@@ -263,20 +200,9 @@ contract HookMultiPlexer is
      * @param sig bytes4 of the sig
      * @param hookType type of the hook
      */
-    function addSigHook(
-        address hook,
-        bytes4 sig,
-        HookType hookType
-    ) external onlySupportedHookType(hookType) {
+    function addSigHook(address hook, bytes4 sig, HookType hookType) external onlySupportedHookType(hookType) {
         // check if the module is initialized and revert if it is not
         if (!isInitialized(msg.sender)) revert NotInitialized(msg.sender);
-
-        // check if the hook is attested to on the registry
-        REGISTRY.checkForAccount({
-            smartAccount: msg.sender,
-            module: hook,
-            moduleType: MODULE_TYPE_HOOK
-        });
 
         // cache the storage config
         Config storage $config = $getConfig({account: msg.sender});
@@ -315,11 +241,7 @@ contract HookMultiPlexer is
      * @param sig bytes4 of the sig
      * @param hookType type of the hook
      */
-    function removeSigHook(
-        address hook,
-        bytes4 sig,
-        HookType hookType
-    ) external {
+    function removeSigHook(address hook, bytes4 sig, HookType hookType) external {
         // check if the module is initialized and revert if it is not
         if (!isInitialized(msg.sender)) revert NotInitialized(msg.sender);
 
@@ -349,11 +271,12 @@ contract HookMultiPlexer is
      *
      * @return hookData data of the hooks
      */
-    function preCheck(
-        address msgSender,
-        uint256 msgValue,
-        bytes calldata msgData
-    ) external virtual override returns (bytes memory hookData) {
+    function preCheck(address msgSender, uint256 msgValue, bytes calldata msgData)
+        external
+        virtual
+        override
+        returns (bytes memory hookData)
+    {
         // cache the storage config
         Config storage $config = $getConfig({account: msg.sender});
         // get the call data selector
@@ -379,14 +302,7 @@ contract HookMultiPlexer is
         // uniquify the hooks
         hooks.uniquifySorted();
         // call all subhooks and return the subhooks with their context datas
-        return
-            abi.encode(
-                hooks.preCheckSubHooks({
-                    msgSender: msgSender,
-                    msgValue: msgValue,
-                    msgData: msgData
-                })
-            );
+        return abi.encode(hooks.preCheckSubHooks({msgSender: msgSender, msgValue: msgValue, msgData: msgData}));
     }
 
     /**
@@ -398,26 +314,18 @@ contract HookMultiPlexer is
     function postCheck(bytes calldata hookData) external override {
         // create the hooks and contexts array
         HookAndContext[] calldata hooksAndContexts;
-
         // decode the hookData
         assembly ("memory-safe") {
-            let dataPointer := add(
-                hookData.offset,
-                calldataload(hookData.offset)
-            )
+            let dataPointer := add(hookData.offset, calldataload(hookData.offset))
             hooksAndContexts.offset := add(dataPointer, 0x20)
             hooksAndContexts.length := calldataload(dataPointer)
         }
-
         // get the length of the hooks
         uint256 length = hooksAndContexts.length;
-        for (uint256 i; i < length; i++) {
-            // cache the hook and context
-            HookAndContext calldata hookAndContext = hooksAndContexts[i];
-            // call postCheck on each hook
-            hookAndContext.hook.postCheckSubHook({
-                preCheckContext: hookAndContext.context
-            });
+
+        for (uint256 i = length; i > 0; --i) {
+            HookAndContext calldata hookAndContext = hooksAndContexts[i - 1];
+            hookAndContext.hook.postCheckSubHook({preCheckContext: hookAndContext.context});
         }
     }
 
@@ -428,9 +336,7 @@ contract HookMultiPlexer is
      *
      * @return config storage config
      */
-    function $getConfig(
-        address account
-    ) internal view returns (Config storage) {
+    function $getConfig(address account) internal view returns (Config storage) {
         return accountConfig[account];
     }
 
@@ -441,9 +347,7 @@ contract HookMultiPlexer is
      *
      * @return true if the type is a module type, false otherwise
      */
-    function isModuleType(
-        uint256 typeID
-    ) external pure virtual override(IHookMultiPlexer, IModule) returns (bool) {
+    function isModuleType(uint256 typeID) external pure virtual override(IHookMultiPlexer, IModule) returns (bool) {
         return typeID == MODULE_TYPE_HOOK;
     }
 
@@ -453,7 +357,7 @@ contract HookMultiPlexer is
      * @return name of the module
      */
     function name() external pure virtual returns (string memory) {
-        return "HookMultiPlexer";
+        return "EtherspotHookMultiPlexer";
     }
 
     /**
@@ -462,6 +366,6 @@ contract HookMultiPlexer is
      * @return version of the module
      */
     function version() external pure virtual returns (string memory) {
-        return "1.0.0";
+        return "2.0.0";
     }
 }
