@@ -5,10 +5,11 @@ libs = ["dependencies"]
 bytecodeHash = "none"
 cbor_metadata = false
 solc_version = '0.8.23'
-evm_version = "london"
+evm_version = "cancun"
 optimizer = true
 runs = 256
 gas_reports = ["*"]
+gas_limit = 1000000000000
 
 remappings = [
   "@openzeppelin/contracts/=dependencies/@openzeppelin-contracts-5.2.0/",

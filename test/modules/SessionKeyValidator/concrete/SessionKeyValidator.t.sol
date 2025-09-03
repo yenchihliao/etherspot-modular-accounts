@@ -79,7 +79,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
                                 TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_installModule() public {
+    function test_installModule_only() public {
         // Expect the module installation event to be emitted
         vm.expectEmit(true, false, false, false);
         emit SKV_ModuleInstalled(address(scw));

@@ -17,6 +17,7 @@ import {
     ModeSelector,
     ModePayload,
     CALLTYPE_STATIC,
+    CALLTYPE_SINGLE,
     EXECTYPE_DEFAULT,
     MODE_DEFAULT
 } from "ERC7579/libs/ModeLib.sol";
@@ -43,6 +44,7 @@ import {TestUSDC} from "../src/test/TestUSDC.sol";
 import {TestERC20} from "../src/test/TestERC20.sol";
 import {TestWETH} from "../src/test/TestWETH.sol";
 import {TestUniswapV2} from "../src/test/TestUniswapV2.sol";
+import {IHook, IModule} from "ERC7579/interfaces/IERC7579Module.sol";
 
 contract ModularTestBase is BootstrapUtil, Test {
     using ECDSA for bytes32;
@@ -187,9 +189,9 @@ contract ModularTestBase is BootstrapUtil, Test {
         zero = User({pub: payable(address(0)), priv: 0});
         _fund(deployer, address(dai), 100e18);
         _fund(deployer, address(usdt), 100e18);
-        // SCW
-        scw = _createSCW(eoa.pub);
         vm.stopPrank();
+        // SCW
+        scw = _createSCW(eoa);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -317,6 +319,70 @@ contract ModularTestBase is BootstrapUtil, Test {
         vm.stopPrank();
         return newWallet;
     }
+
+    function _createSCW(User memory _owner) internal returns (ModularEtherspotWallet) {
+        // Create the wallet implementation that will be delegated to
+        ModularEtherspotWallet walletImpl = new ModularEtherspotWallet();
+
+        // Use EIP-7702 delegation instead of ERC-4337 factory deployment
+        // The owner signs a delegation allowing the wallet implementation to execute on their behalf
+        Vm.SignedDelegation memory signedDelegation = vm.signDelegation(address(walletImpl), _owner.priv);
+
+        // Attach the delegation to make the next call an EIP-7702 transaction
+        vm.attachDelegation(signedDelegation);
+
+        // The owner's account now behaves as the smart contract wallet
+        ModularEtherspotWallet newWallet = ModularEtherspotWallet(payable(_owner.pub));
+
+        // Initialize the wallet with the owner
+        newWallet.initializeAccount(abi.encode(_owner.pub, address(0), ""));
+
+        // Install modules using the EXACT same pattern as ERC-4337 but separated to avoid OOM
+        // Since the wallet has onlyEntryPointOrSelf modifier, we need to call as the entry point
+
+        // Step 1: Install validator (EXACT same as ERC-4337: _makeBootstrapConfig(address(mockVal), ""))
+        vm.prank(ENTRYPOINT_7);
+        newWallet.installModule(MODULE_TYPE_VALIDATOR, address(mockVal), "");
+
+        // Step 2: Install executor (EXACT same as ERC-4337: makeBootstrapConfig(address(mockExec), ""))
+        vm.prank(ENTRYPOINT_7);
+        newWallet.installModule(MODULE_TYPE_EXECUTOR, address(mockExec), "");
+
+
+        // Step 3: Install hook with EXACT same data as ERC-4337 but separated to avoid OOM
+        // This matches the referenced code exactly: _makeBootstrapConfig(address(hmp), hmpData)
+        address[] memory globalHooks = new address[](0);
+        address[] memory valueHooks = new address[](0);
+        address[] memory delegatecallHooks = new address[](0);
+        SigHookInit[] memory sigHooks = new SigHookInit[](0);
+        SigHookInit[] memory targetSigHooks = new SigHookInit[](0);
+
+        // The HookMultiPlexer expects the data to be encoded as a function call to onInstall
+        // This matches how _makeBootstrapConfig works: abi.encodeCall(IModule.onInstall, data)
+        bytes memory hookData = abi.encode(globalHooks, valueHooks, delegatecallHooks, sigHooks, targetSigHooks);
+        bytes memory hmpData = abi.encodeCall(IModule.onInstall, hookData);
+
+        vm.prank(ENTRYPOINT_7);
+        newWallet.installModule(MODULE_TYPE_HOOK, address(hmp), hmpData);
+
+        // Step 4: Install fallback handler (EXACT same as ERC-4337: makeBootstrapConfig(address(0), ""))
+        // But use the actual fallback handler address instead of address(0)
+        // The fallback handler expects data in format: abi.encode(selector, callType, allowedCallers, initData)
+        // bytes4 fallbackSelector = bytes4(erc1155fb.onERC1155Received.selector);
+        // address[] memory allowedCallers = new address[](0); // No specific callers allowed
+        // bytes memory fallbackData = abi.encode(fallbackSelector, CALLTYPE_SINGLE, allowedCallers, hex"");
+
+        // vm.startPrank(ENTRYPOINT_7);
+        // newWallet.installModule(MODULE_TYPE_FALLBACK, address(erc1155fb), fallbackData);
+
+
+        // Fund the wallet (EXACT same as ERC-4337)
+        vm.deal(address(newWallet), 100 ether);
+
+        return newWallet;
+    }
+
+
 
     function _installModule(
         address _owner,
