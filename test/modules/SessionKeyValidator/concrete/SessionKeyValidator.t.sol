@@ -79,7 +79,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
                                 TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_installModule_only() public {
+    function test_installModule() public {
         // Expect the module installation event to be emitted
         vm.expectEmit(true, false, false, false);
         emit SKV_ModuleInstalled(address(scw));
@@ -1638,6 +1638,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         // Mint ERC20 tokens to the wallet
         uint256 mintAmount = 1000 * 10 ** 18; // 1000 tokens
         usdt.mint(address(scw), mintAmount);
+        mintAmount = usdt.balanceOf(address(scw));
         // Create permissions for ERC20 approve and transferFrom
         ParamCondition[] memory approveConditions = new ParamCondition[](2);
         approveConditions[0] =

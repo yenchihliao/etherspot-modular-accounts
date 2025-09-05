@@ -336,7 +336,7 @@ contract ModularEtherspotWallet is
      */
     function initializeAccount(
         bytes calldata data
-    ) public payable virtual onlyProxy {
+    ) public payable virtual {
         _initModuleManager();
         (address owner, address bootstrap, bytes memory bootstrapCall) = abi
             .decode(data, (address, address, bytes));

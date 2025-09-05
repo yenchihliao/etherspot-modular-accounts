@@ -218,7 +218,6 @@ contract ModularTestBase is BootstrapUtil, Test {
     function _createUser(string memory _name) internal returns (User memory) {
         (address payable addr, uint256 key) = _makePayableAddrAndKey(_name);
         User memory user = User({pub: addr, priv: key});
-        vm.label({account: addr, newLabel: _name});
         vm.deal({account: addr, newBalance: 100 ether});
         deal({token: address(dai), to: addr, give: 100e18});
         deal({token: address(usdt), to: addr, give: 100e18});
@@ -347,7 +346,6 @@ contract ModularTestBase is BootstrapUtil, Test {
         // Step 2: Install executor (EXACT same as ERC-4337: makeBootstrapConfig(address(mockExec), ""))
         vm.prank(ENTRYPOINT_7);
         newWallet.installModule(MODULE_TYPE_EXECUTOR, address(mockExec), "");
-
 
         // Step 3: Install hook with EXACT same data as ERC-4337 but separated to avoid OOM
         // This matches the referenced code exactly: _makeBootstrapConfig(address(hmp), hmpData)
