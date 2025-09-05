@@ -4,6 +4,8 @@ pragma solidity ^0.8.23;
 import "forge-std/Test.sol";
 import {ModularEtherspotWallet} from "../src/wallet/ModularEtherspotWallet.sol";
 import {SessionKeyValidator} from "../src/modules/validators/SessionKeyValidator.sol";
+import {MultipleOwnerECDSAValidator} from "../src/modules/validators/MultipleOwnerECDSAValidator.sol";
+import {CredibleAccountModule} from "../src/modules/validators/CredibleAccountModule.sol";
 import {TestERC20} from "../src/test/TestERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Permission, ParamCondition, SessionData, ExecutionValidation} from "../src/common/Structs.sol";
@@ -30,7 +32,11 @@ contract IntegrationTest is Test {
     User public user3;
     address payable public beneficiary;
     TestERC20 internal usdt;
+
+    // Multiple validation modules for testing
     SessionKeyValidator internal sessionKeyValidator;
+    MultipleOwnerECDSAValidator internal multipleOwnerValidator;
+    CredibleAccountModule internal credibleAccountValidator;
     address internal constant ENTRYPOINT_7 = 0x0000000071727De22E5E9d8BAf0edAc6f37da032;
     IEntryPoint internal entrypoint = IEntryPoint(ENTRYPOINT_7);
 
@@ -39,18 +45,39 @@ contract IntegrationTest is Test {
         // Prepare contracts
         deployCodeTo("src/ERC7579/test/dependencies/EntryPoint.sol:EntryPointSimulationsPatch", "", ENTRYPOINT_7); // Deploy entrypoint
         walletSingleton = new ModularEtherspotWallet(); // Deploy wallet for 7702
-        sessionKeyValidator = new SessionKeyValidator();
+
         usdt = new TestERC20();
 
-        // Prepare EOAs
+        // Prepare EOAs first (needed for validatorC constructor)
         user1 = _createUser("EOA1");
         user2 = _createUser("EOA2");
         user3 = _createUser("EOA3");
         beneficiary = payable(makeAddr("Beneficiary"));
 
+        // Deploy multiple validation modules
+        sessionKeyValidator = new SessionKeyValidator();
+        multipleOwnerValidator = new MultipleOwnerECDSAValidator();
+        // credibleAccountValidator = new CredibleAccountModule(user1.pub, address(0));
+
         // 7702 delegation
         _createSimple7702Wallet(user1);
         _createSimple7702Wallet(user2);
+
+        // PREMISE: Install different validation modules on different users
+        // User1: Install SessionKeyValidator and MultipleOwnerECDSAValidator
+        vm.prank(user1.pub);
+        ModularEtherspotWallet(payable(user1.pub)).installModule(MODULE_TYPE_VALIDATOR, address(sessionKeyValidator), "");
+        assertEq(ModularEtherspotWallet(payable(user1.pub)).isModuleInstalled(MODULE_TYPE_VALIDATOR, address(sessionKeyValidator), ""), true);
+        vm.prank(user1.pub);
+        ModularEtherspotWallet(payable(user1.pub)).installModule(MODULE_TYPE_VALIDATOR, address(multipleOwnerValidator), "");
+        assertEq(ModularEtherspotWallet(payable(user1.pub)).isModuleInstalled(MODULE_TYPE_VALIDATOR, address(multipleOwnerValidator), ""), true);
+
+        // User2: Install MultipleOwnerECDSAValidator and CredibleAccountModule
+        vm.prank(user2.pub);
+        ModularEtherspotWallet(payable(user2.pub)).installModule(MODULE_TYPE_VALIDATOR, address(multipleOwnerValidator), "");
+        assertEq(ModularEtherspotWallet(payable(user2.pub)).isModuleInstalled(MODULE_TYPE_VALIDATOR, address(multipleOwnerValidator), ""), true);
+        // vm.prank(user2.pub);
+        // ModularEtherspotWallet(payable(user2.pub)).installModule(MODULE_TYPE_VALIDATOR, address(credibleAccountValidator), "");
     }
 
     /// @notice Regular EOA behavior still works (ERC20)
@@ -82,10 +109,6 @@ contract IntegrationTest is Test {
 
     /// @notice Test installing multiple modules and executing operations with session keys
     function test_installMultipleModules() public {
-        // Install the session key validator module
-        vm.prank(user1.pub);
-        ModularEtherspotWallet(payable(user1.pub)).installModule(MODULE_TYPE_VALIDATOR, address(sessionKeyValidator), "");
-        assertEq(ModularEtherspotWallet(payable(user1.pub)).isModuleInstalled(MODULE_TYPE_VALIDATOR, address(sessionKeyValidator), ""), true);
 
         // Create a fourth user to approve tokens to
         User memory user4 = _createUser("EOA4");
