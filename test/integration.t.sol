@@ -107,21 +107,17 @@ contract IntegrationTest is Test {
         assertEq(usdt.allowance(user2.pub, user1.pub), 0);
     }
 
-    /// @notice Test installing multiple modules and executing operations with session keys
-    function test_installMultipleModules() public {
-
-        // Create a fourth user to approve tokens to
-        User memory user4 = _createUser("EOA4");
-
+    // Permit usdt.approve to grantee_
+    function _useSessionKeyValidator(User memory granter_, address grantee_) internal {
         // Set up user3 as a session key with validity period
-        SessionData memory sd = SessionData({
-            sessionKey: user3.pub,
+        SessionData memory _sessionData = SessionData({
+            sessionKey: grantee_,
             validAfter: uint48(block.timestamp),
             validUntil: uint48(block.timestamp + 1 days),
             live: true
         });
-        vm.prank(user1.pub);
-        sessionKeyValidator.enableSessionKey(sd, new Permission[](0));
+        vm.prank(granter_.pub);
+        sessionKeyValidator.enableSessionKey(_sessionData, new Permission[](0));
 
         // Add permission for user3 to call approve on USDT
         Permission memory approvePerm = Permission({
@@ -131,42 +127,70 @@ contract IntegrationTest is Test {
             uses: 2,
             paramConditions: new ParamCondition[](0)
         });
-        vm.prank(user1.pub);
-        sessionKeyValidator.addPermission(user3.pub, approvePerm);
+        vm.prank(granter_.pub);
+        sessionKeyValidator.addPermission(grantee_, approvePerm);
+    }
 
-        // Prepare the execution data for approving 1e6 tokens to user4
-        address target = address(usdt);
-        uint256 value = 0;
+    /// @notice Test installing multiple modules and executing operations with session keys
+    function test_useMultipleValidators() public {
+        User memory user4 = _createUser("EOA4");
+
+        // Test 1: Grant access to user3 using SessionKeyValidator
+        _useSessionKeyValidator(user1, user3.pub);
+
+        // Prepare calldata
         bytes memory callData = abi.encodeWithSelector(IERC20.approve.selector, user4.pub, 1e6);
-
-        // Encode everything for the execute call
-        bytes memory executionData = ExecutionLib.encodeSingle(target, value, callData);
+        bytes memory executionData = ExecutionLib.encodeSingle(address(usdt), 0, callData);
         bytes memory opCalldata = abi.encodeCall(
             IERC7579Account.execute,
             (ModeLib.encodeSimpleSingle(), executionData)
         );
 
-        // Create and sign the UserOperation
-        PackedUserOperation memory op = _createUserOp(address(user1.pub), address(sessionKeyValidator));
-        op.callData = opCalldata;
-
-        // Need ExecutionValidation for the session key validator
+        // Prepare execValidations (required by SessionKeyValidator)
         ExecutionValidation[] memory execValidations = new ExecutionValidation[](1);
         execValidations[0] = ExecutionValidation({
-            validAfter: uint48(block.timestamp),
-            validUntil: uint48(block.timestamp + 1 days)
+            validAfter: uint48(block.timestamp+1 hours),
+            validUntil: uint48(block.timestamp + 3 hours)
         });
+        vm.warp(block.timestamp+2 hours);
 
-        // Sign with user3 and include the execution validation
-        bytes32 hash = entrypoint.getUserOpHash(op);
-        bytes memory signature = _ethSign(hash, user3);
-        op.signature = abi.encodePacked(signature, abi.encode(execValidations));
+        // Prepare opCall
+        PackedUserOperation memory op1 = _createUserOp(address(user1.pub), address(sessionKeyValidator));
+        op1.callData = opCalldata;
+        bytes32 hash1 = entrypoint.getUserOpHash(op1);
+        bytes memory signature1 = _ethSign(hash1, user3);
+        op1.signature = abi.encodePacked(signature1, abi.encode(execValidations));
 
-        // Execute the operation
-        _executeUserOp(op);
+        // Execute the operation with SessionKeyValidator
+        _executeUserOp(op1);
 
         // Check that the approval worked
         assertEq(usdt.allowance(user1.pub, user4.pub), 1e6);
+
+        // Test 2: Grant access to user2 to use MultipleOwnerECDSAValidator
+        vm.prank(user1.pub);
+        ModularEtherspotWallet(payable(user1.pub)).addOwner(user2.pub);
+
+        // Prepare calldata
+        bytes memory callData2 = abi.encodeWithSelector(IERC20.transfer.selector, user2.pub, 1e6);
+        bytes memory executionData2 = ExecutionLib.encodeSingle(address(usdt), 0, callData2);
+        bytes memory opCalldata2 = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), executionData2)
+        );
+
+        // Sign with new owner (user2)
+        PackedUserOperation memory op2 = _createUserOp(address(user1.pub), address(multipleOwnerValidator));
+        op2.callData = opCalldata2;
+        bytes32 hash2 = entrypoint.getUserOpHash(op2);
+        bytes memory signature2 = _ethSign(hash2, user2);
+        op2.signature = signature2;
+
+        // Execute the operation with MultipleOwnerECDSAValidator
+        _executeUserOp(op2);
+
+        // Check that the transfer worked
+        assertEq(usdt.balanceOf(user2.pub), 100e18 + 1e6); // user2 had 100e18, now has 100e18 + 1e6
     }
 
     /// @dev 7702 delegate _owner to the scw
