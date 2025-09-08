@@ -171,26 +171,68 @@ contract IntegrationTest is Test {
         vm.prank(user1.pub);
         ModularEtherspotWallet(payable(user1.pub)).addOwner(user2.pub);
 
-        // Prepare calldata
-        bytes memory callData2 = abi.encodeWithSelector(IERC20.transfer.selector, user2.pub, 1e6);
-        bytes memory executionData2 = ExecutionLib.encodeSingle(address(usdt), 0, callData2);
-        bytes memory opCalldata2 = abi.encodeCall(
-            IERC7579Account.execute,
-            (ModeLib.encodeSimpleSingle(), executionData2)
-        );
-
-        // Sign with new owner (user2)
-        PackedUserOperation memory op2 = _createUserOp(address(user1.pub), address(multipleOwnerValidator));
-        op2.callData = opCalldata2;
-        bytes32 hash2 = entrypoint.getUserOpHash(op2);
-        bytes memory signature2 = _ethSign(hash2, user2);
-        op2.signature = signature2;
-
-        // Execute the operation with MultipleOwnerECDSAValidator
+        // Execute transfer using the helper function
+        PackedUserOperation memory op2 = _executeTransferWithOwner(user1.pub, user2, user2.pub, 1e6);
         _executeUserOp(op2);
 
         // Check that the transfer worked
         assertEq(usdt.balanceOf(user2.pub), 100e18 + 1e6); // user2 had 100e18, now has 100e18 + 1e6
+    }
+
+    /// @notice Test where both EOA1 and EOA2 use the same multipleOwner validator but with different owners
+    function test_shareTheSameValidator() public {
+        User memory user4 = _createUser("EOA4");
+        User memory user5 = _createUser("EOA5");
+        PackedUserOperation memory op;
+
+        // Test 1: EOA1 uses multipleOwner validator with user3 as owner
+        vm.prank(user1.pub);
+        ModularEtherspotWallet(payable(user1.pub)).addOwner(user3.pub);
+        op = _executeTransferWithOwner(user1.pub, user3, user4.pub, 1e6);
+        _executeUserOp(op);
+        assertEq(usdt.balanceOf(user4.pub), 100e18 + 1e6);
+
+        // Test 2: EOA2 uses the same multipleOwner validator but with user5 as owner (different from user1)
+        vm.prank(user2.pub);
+        ModularEtherspotWallet(payable(user2.pub)).addOwner(user5.pub);
+        op = _executeTransferWithOwner(user2.pub, user5, user4.pub, 2e6);
+        _executeUserOp(op);
+        assertEq(usdt.balanceOf(user4.pub), 100e18 + 3e6);
+
+        // Test 3: Verify that user3 cannot sign for user2's wallet (different owners)
+        // First, let's verify that user3 is NOT an owner of user2's wallet
+        assertFalse(ModularEtherspotWallet(payable(user2.pub)).isOwner(user3.pub));
+
+        // This should fail because user3 is not an owner of user2's wallet
+        op = _executeTransferWithOwner(user2.pub, user3, user4.pub, 1e6);
+        vm.expectRevert(abi.encodeWithSignature("FailedOp(uint256,string)", 0, "AA24 signature error"));
+        _executeUserOp(op);
+        // Verify that both wallets can use the same validator instance but have different owners
+        assertEq(ModularEtherspotWallet(payable(user1.pub)).isModuleInstalled(MODULE_TYPE_VALIDATOR, address(multipleOwnerValidator), ""), true);
+        assertEq(ModularEtherspotWallet(payable(user2.pub)).isModuleInstalled(MODULE_TYPE_VALIDATOR, address(multipleOwnerValidator), ""), true);
+
+        // Verify that user1 has user3 as owner but user2 does not
+        assertTrue(ModularEtherspotWallet(payable(user1.pub)).isOwner(user3.pub));
+        assertFalse(ModularEtherspotWallet(payable(user2.pub)).isOwner(user3.pub));
+
+        // Verify that user2 has user5 as owner but user1 does not
+        assertTrue(ModularEtherspotWallet(payable(user2.pub)).isOwner(user5.pub));
+        assertFalse(ModularEtherspotWallet(payable(user1.pub)).isOwner(user5.pub));
+    }
+
+    function _executeTransferWithOwner(address wallet, User memory owner, address recipient, uint256 amount) internal returns (PackedUserOperation memory op) {
+        bytes memory callData = abi.encodeWithSelector(IERC20.transfer.selector, recipient, amount);
+        bytes memory executionData = ExecutionLib.encodeSingle(address(usdt), 0, callData);
+        bytes memory opCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), executionData)
+        );
+
+        op = _createUserOp(wallet, address(multipleOwnerValidator));
+        op.callData = opCalldata;
+        bytes32 hash = entrypoint.getUserOpHash(op);
+        bytes memory signature = _ethSign(hash, owner);
+        op.signature = signature;
     }
 
     /// @dev 7702 delegate _owner to the scw
